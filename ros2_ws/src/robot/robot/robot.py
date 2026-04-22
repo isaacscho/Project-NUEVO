@@ -227,7 +227,7 @@ class Robot:
         self._gps_timeout_s:     float       = 1.0   # seconds before GPS is treated as stale
         self._gps_offset_x_mm:   float       = 304.8   # GPS frame → arena frame translation x
         self._gps_offset_y_mm:   float       = 1524   # GPS frame → arena frame translation y
-        self._tag_body_offset_x_mm: float    = 0.0   # tag position in robot body frame x (mm, forward)
+        self._tag_body_offset_x_mm: float    = 12.7   # tag position in robot body frame x (mm, forward)
         self._tag_body_offset_y_mm: float    = 0.0   # tag position in robot body frame y (mm, left)
         self._fused_x_mm:        float       = 0.0   # complementary-filter x output (mm)
         self._fused_y_mm:        float       = 0.0   # complementary-filter y output (mm)
