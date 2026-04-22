@@ -1,17 +1,3 @@
-"""
-main.py — student entry point
-==============================
-This is the only file students are expected to edit.
-
-The structure is intentionally simple:
-- keep one plain `state` variable
-- write helper functions for robot actions
-- use `if state == "..."` inside the main loop
-
-To run:
-    ros2 run robot robot
-"""
-
 from __future__ import annotations
 import time
 
@@ -28,8 +14,8 @@ import math
 
 TAG_ID = 11 # set aruco tag ID 11 
 POSITION_UNIT = Unit.MM
-WHEEL_DIAMETER = 74.0
-WHEEL_BASE = 333.0
+WHEEL_DIAMETER = 76.2
+WHEEL_BASE = 355.6
 INITIAL_THETA_DEG = 90.0
 
 LEFT_WHEEL_MOTOR = Motor.DC_M1
@@ -39,7 +25,6 @@ RIGHT_WHEEL_DIR_INVERTED = True
 
 
 def configure_robot(robot: Robot) -> None:
-    """Apply the user unit plus robot-specific wheel mapping and odometry settings."""
     robot.set_unit(POSITION_UNIT)
     robot.set_odometry_parameters(
         wheel_diameter=WHEEL_DIAMETER,
@@ -64,7 +49,6 @@ def show_moving_leds(robot: Robot) -> None:
 
 
 def start_robot(robot: Robot) -> None:
-    """Start the firmware and reset odometry before the main mission begins."""
     robot.set_state(FirmwareState.RUNNING)
     robot.reset_odometry()
     robot.wait_for_pose_update(timeout=0.2)
@@ -72,11 +56,9 @@ def start_robot(robot: Robot) -> None:
 
 def run(robot: Robot) -> None:
     configure_robot(robot)
-    
 
     state = "INIT"
     drive_handle = None
-    # FSM refresh rate control
     period = 1.0 / float(DEFAULT_FSM_HZ)
     next_tick = time.monotonic()
 
@@ -84,6 +66,7 @@ def run(robot: Robot) -> None:
         if state == "INIT":
             start_robot(robot)
             print("[FSM] INIT (odometry reset)")
+<<<<<<< HEAD
             path_control_points = [ #Define your path control points here (x, y) in mm
                 (0.0, 0.0), # 1st point
                 (0.0, 3.6576e3), # 2nd point
@@ -96,18 +79,40 @@ def run(robot: Robot) -> None:
             remaining_path = path1.copy() 
             print("Path is ready, Entering IDLE state.")
             print("[FSM] IDLE - Press BTN_1 to enter MOVING state.")
+=======
+
+            path_control_points = [
+                (0.0,   0.0),
+                #(0.0,   100.0),   # midpoint on first edge
+                (0.0,   300.0),   # first corner
+                #(100.0, 200.0),   # midpoint on second edge
+                (300.0, 300.0),   # second corner
+                #(200.0, 100.0),   # midpoint on third edge
+                (300.0, 0.0),     # third corner
+                #(100.0, 0.0),     # midpoint on fourth edge
+                (0.0,   0.0),     # back to start
+            ]
+
+            path1 = densify_polyline(path_control_points, spacing=20.0)
+            remaining_path = path1.copy()
+            print("Path is ready. Entering IDLE state.")
+>>>>>>> 5ad33e6 (Save current progress before rebase)
             state = "IDLE"
 
         elif state == "IDLE":
             show_idle_leds(robot)
+<<<<<<< HEAD
+=======
+            print("[FSM] IDLE - Press BTN_1 to start.")
+>>>>>>> 5ad33e6 (Save current progress before rebase)
             if robot.get_button(Button.BTN_1):
-                LOOKAHEAD_DIST = 100.0 # Lookahead distance in mm (adjust as needed)
+                LOOKAHEAD_DIST = 30.0        
                 planner1 = PurePursuitPlanner(
-                    lookahead_dist=LOOKAHEAD_DIST, 
-                    max_angular=1.5, # Max angular velocity in rad/s (adjust as needed)
-                    goal_tolerance=20.0, # Distance in mm to consider the target reached (adjust as needed)
-             )
-                print("Pure Pursuit Planner is initialized. Start Moving!")
+                    lookahead_dist=LOOKAHEAD_DIST,
+                    max_angular=1.5,
+                    goal_tolerance=20.0,
+                )
+                print("Pure Pursuit Planner initialized. Moving!")
                 print("[FSM] MOVING")
                 state = "MOVING"
             if robot.get_button(Button.BTN_2):
@@ -116,6 +121,7 @@ def run(robot: Robot) -> None:
 
         elif state == "MOVING":
             show_moving_leds(robot)
+<<<<<<< HEAD
             # Step 1: Get current pose, including current coordinates and heading angle in degrees
             # using robot.get_pose() function. Store the values in current_x, current_y, and current_theta_deg variables.
             current_x, current_y, current_theta_deg = robot.get_pose()
@@ -161,6 +167,45 @@ def run(robot: Robot) -> None:
                 state = "IDLE"
             
         # FSM refresh rate control
+=======
+
+            current_x, current_y, current_theta_deg = robot.get_pose()
+            current_theta_rad = math.radians(current_theta_deg)
+
+            remaining_path = robot._advance_remaining_path(
+                remaining_path, current_x, current_y, advance_radius_mm=20.0
+            )
+
+            # Path fully consumed
+            if len(remaining_path) == 0:
+                print("MOVING: Path complete. Stopping.")
+                robot.stop()
+                state = "IDLE"
+            else:
+                current_pursuit_x, current_pursuit_y = planner1._lookahead_point(
+                    current_x, current_y, waypoints=remaining_path
+                )
+
+                linear_velocity_cmd, angular_velocity_cmd_rad_s = planner1.compute_velocity(
+                    pose=(current_x, current_y, current_theta_rad),
+                    waypoints=remaining_path,
+                    max_linear=80.0,
+                )
+
+                robot.set_velocity(
+                    linear_velocity_cmd,
+                    math.degrees(angular_velocity_cmd_rad_s)
+                )
+
+                if len(remaining_path) == 1:
+                    if planner1.CurrentTargetReached(
+                        remaining_path[0][0], remaining_path[0][1], current_x, current_y
+                    ):
+                        print("MOVING: Final goal reached. Stopping.")
+                        robot.stop()
+                        state = "IDLE"
+        # FSM tick rate control
+>>>>>>> 5ad33e6 (Save current progress before rebase)
         next_tick += period
         sleep_s = next_tick - time.monotonic()
         if sleep_s > 0.0:
