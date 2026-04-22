@@ -163,7 +163,7 @@ class Robot:
     """
 
     WHEEL_DIAMETER_MM: float = 74.0
-    WHEEL_BASE_MM:     float = 333.0
+    WHEEL_BASE_MM:     float = 355.0
     ENCODER_PPR:       int   = 1440
     INITIAL_THETA_DEG: float = 90.0
     IMU_Z_DOWN:        bool  = False
