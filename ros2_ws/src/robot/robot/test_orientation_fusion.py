@@ -36,7 +36,6 @@ from robot.hardware_map import DEFAULT_FSM_HZ
 SPIN_ANGLE_DEG = 180.0   # degrees — in-place sweep to record heading fusion
 ANGULAR_DEG_S  = 20.0    # deg/s — CCW positive
 ORIENTATION_FUSION_ALPHA   = 0.2       # complementary-filter magnetometer weight
-
 # Derived motion duration for the in-place spin
 _SPIN_DURATION_S = abs(SPIN_ANGLE_DEG / ANGULAR_DEG_S)
 
