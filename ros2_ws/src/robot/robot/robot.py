@@ -171,7 +171,7 @@ class Robot:
     DEFAULT_RIGHT_WHEEL_MOTOR: int = int(Motor.DC_M2)
     DEFAULT_LEFT_WHEEL_DIR_INVERTED: bool = False
     DEFAULT_RIGHT_WHEEL_DIR_INVERTED: bool = True
-    POSITION_ALPHA = 0.10  # complementary filter GPS weight for position fusion
+    POSITION_ALPHA = 0.50  # complementary filter GPS weight for position fusion
     ORIENTATION_ALPHA = 0.0  # complementary filter IMU weight for orientation fusion (IMU is not working well, so default to pure odometry for now)
 
     # Servo pulse range (standard hobby servo)
