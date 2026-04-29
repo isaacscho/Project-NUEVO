@@ -71,9 +71,9 @@ def run(robot: Robot) -> None:
 <<<<<<< HEAD
             path_control_points = [ #Define your path control points here (x, y) in mm
                 (0.0, 0.0), # 1st point
-                (0.0, 500), # 2nd point
-                (500.0, 500.0), # 3rd point
-                (500.0, 0.0), # 4th point
+                (0.0, 2130), # 2nd point
+                (1524, 2130), # 3rd point
+                (1524, 0.0), # 4th point
                 (0.0, 0.0), # 5th point
             ]    
             path1 = path_control_points
