@@ -68,18 +68,6 @@ def run(robot: Robot) -> None:
         if state == "INIT":
             start_robot(robot)
             print("[FSM] INIT (odometry reset)")
-<<<<<<< HEAD
-            path_control_points = [ #Define your path control points here (x, y) in mm
-                (0.0, 0.0), # 1st point
-                (0.0, 2130), # 2nd point
-                (1524, 2130), # 3rd point
-                (1524, 0.0), # 4th point
-                (0.0, 0.0), # 5th point
-            ]    
-            path1 = path_control_points
-            #path1 = densify_polyline(path_control_points, spacing=20.0)
-            remaining_path = path1.copy() 
-=======
             # center lane
             # path_control_points = [
             #     (0.0,   0.0),
@@ -88,9 +76,11 @@ def run(robot: Robot) -> None:
             # ]
             # left lane
             path_control_points = [
-                (300.0,   0.0),
-                (300.0, 2500.0),
-                (1300.0, 2500.0),
+                 (0.0, 0.0), # 1st point
+                (0.0, 2130), # 2nd point
+                (1524, 2130), # 3rd point
+                (1524, 0.0), # 4th point
+                (0.0, 0.0), 
             ]
 
             path = densify_polyline(path_control_points, spacing=400.0)
@@ -111,7 +101,6 @@ def run(robot: Robot) -> None:
                 x_L=300.0,
             )
             robot.planner.set_path(path)
->>>>>>> upstream/main
             print("Path is ready, Entering IDLE state.")
             print("[FSM] IDLE - Press BTN_1 to enter MOVING state.")
             state = "IDLE"
@@ -120,7 +109,6 @@ def run(robot: Robot) -> None:
             show_idle_leds(robot)
             robot._draw_lidar_obstacles()
             if robot.get_button(Button.BTN_1):
-<<<<<<< HEAD
                 LOOKAHEAD_DIST = 30.0        
                 planner1 = PurePursuitPlanner(
                     lookahead_dist=LOOKAHEAD_DIST,
@@ -128,9 +116,7 @@ def run(robot: Robot) -> None:
                     goal_tolerance=20.0,
                 )
                 print("Pure Pursuit Planner initialized. Moving!")
-=======
                 print("Start Moving!")
->>>>>>> upstream/main
                 print("[FSM] MOVING")
                 state = "MOVING"
             if robot.get_button(Button.BTN_2):
