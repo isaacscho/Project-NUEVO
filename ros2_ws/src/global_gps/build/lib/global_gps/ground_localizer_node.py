@@ -30,22 +30,25 @@ rover_ids : int[]  (default [11-18])
 from __future__ import annotations
 
 import json
+import os
 import socket
 import threading
 import numpy as np
 import cv2
+import yaml
 
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
+from ament_index_python.packages import get_package_share_directory
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 
 from bridge_interfaces.msg import TagDetection, TagDetectionArray
 
-from .geometry_utils import fit_plane_svd, project_point_to_plane, build_world_transform
+from .geometry_utils import project_point_to_plane, rigid_transform_svd
 
 
 # QoS used for all publishers and the camera-info subscriber.
@@ -76,13 +79,22 @@ class GroundLocalizer(Node):
         # ── Parameters ────────────────────────────────────────────────────
         self.declare_parameter("marker_size", 0.10)
         self.declare_parameter("corner_ids", [0, 1, 2, 3])
-        self.declare_parameter("rover_ids", [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26])
+        self.declare_parameter("rover_ids", [11, 12, 13, 14, 15, 16, 17, 18])
         self.declare_parameter("tcp_port", 7777)
+        self.declare_parameter("calibration_layout_file", "")
 
         self._marker_size: float = float(self.get_parameter("marker_size").value)
         self._corner_ids: list[int] = list(self.get_parameter("corner_ids").value)
         self._rover_ids: list[int] = list(self.get_parameter("rover_ids").value)
         self._tcp_port: int = int(self.get_parameter("tcp_port").value)
+        self._calibration_layout_file: str = str(
+            self.get_parameter("calibration_layout_file").value
+        )
+
+        # Load and validate the world-frame calibration-tag layout.
+        # Row order matches self._corner_ids so P_world[i] corresponds to
+        # the tvec at P_cam[i] during the SVD calibration step.
+        self._P_world: np.ndarray = self._load_calibration_layout()
 
         self._obj_pts = _MARKER_OBJ_PTS_UNIT * self._marker_size
 
@@ -221,21 +233,139 @@ class GroundLocalizer(Node):
 
     # ── Calibration ───────────────────────────────────────────────────────
 
-    def _calibrate(self, marker_poses: dict[int, dict]) -> None:
-        """Fit the ground plane and world transform from the four corner anchors."""
-        self.get_logger().info("Calibrating ground plane and world frame…")
+    def _load_calibration_layout(self) -> np.ndarray:
+        """Resolve, parse and validate the calibration-tag world layout.
 
-        pts = np.array([marker_poses[mid]["tvec"] for mid in self._corner_ids])
-        normal, d = fit_plane_svd(pts)
-        self._ground_plane = {"normal": normal, "d": d}
-        self._T_world_from_cam = build_world_transform(
-            origin=pts[0],
-            x_point=pts[1],
-            y_point=pts[2],
-            normal=normal,
+        Returns a ``(4, 3)`` float ndarray ordered to match
+        ``self._corner_ids`` (row ``i`` is the world-frame ``(x, y, z)``
+        of corner id ``self._corner_ids[i]``).
+        """
+        # Resolution order: explicit param wins; otherwise packaged default.
+        path = self._calibration_layout_file
+        if not path:
+            try:
+                share = get_package_share_directory("global_gps")
+            except Exception as exc:
+                self.get_logger().error(
+                    f"Cannot locate global_gps share directory: {exc}"
+                )
+                rclpy.shutdown()
+                raise
+            path = os.path.join(share, "config", "calibration_layout.yaml")
+
+        if not os.path.isfile(path):
+            self.get_logger().error(
+                f"Calibration layout file not found: {path}"
+            )
+            rclpy.shutdown()
+            raise FileNotFoundError(path)
+
+        try:
+            with open(path, "r") as f:
+                doc = yaml.safe_load(f)
+        except Exception as exc:
+            self.get_logger().error(
+                f"Failed to parse calibration layout {path}: {exc}"
+            )
+            rclpy.shutdown()
+            raise
+
+        raw = (doc or {}).get("calibration_tags")
+        if not isinstance(raw, dict):
+            self.get_logger().error(
+                f"Calibration layout {path} missing 'calibration_tags' map."
+            )
+            rclpy.shutdown()
+            raise ValueError("calibration_tags missing")
+
+        # PyYAML loads `0:` as int but quoted `"0":` becomes str — coerce.
+        coerced: dict[int, list[float]] = {}
+        for k, v in raw.items():
+            try:
+                coerced[int(k)] = [float(x) for x in v]
+            except (TypeError, ValueError) as exc:
+                self.get_logger().error(
+                    f"Bad calibration entry {k!r} -> {v!r}: {exc}"
+                )
+                rclpy.shutdown()
+                raise
+
+        # Validate that every required corner id is present.
+        missing = [cid for cid in self._corner_ids if cid not in coerced]
+        if missing:
+            self.get_logger().error(
+                f"Calibration layout {path} is missing corner_ids: {missing}"
+            )
+            rclpy.shutdown()
+            raise KeyError(f"missing corner ids: {missing}")
+
+        # Build (N, 3) array in self._corner_ids order — must match P_cam row order.
+        P_world = np.array(
+            [coerced[cid] for cid in self._corner_ids],
+            dtype=np.float64,
         )
+        if P_world.shape[1] != 3:
+            self.get_logger().error(
+                f"Calibration layout entries must be 3-vectors, got shape {P_world.shape}"
+            )
+            rclpy.shutdown()
+            raise ValueError("layout entries must be length-3")
+
+        # Reject near-collinear layouts: smaller singular value of centered
+        # XY layout must be at least ~1% of the larger one.
+        xy = P_world[:, :2] - P_world[:, :2].mean(axis=0)
+        sv = np.linalg.svd(xy, compute_uv=False)
+        if sv[0] <= 0.0 or sv[-1] / sv[0] < 0.01:
+            self.get_logger().error(
+                "Calibration layout is nearly collinear "
+                f"(singular values {sv.tolist()}); fix calibration_layout.yaml."
+            )
+            rclpy.shutdown()
+            raise ValueError("collinear calibration layout")
+
+        self.get_logger().info(
+            f"Loaded calibration layout from {path} ({len(self._corner_ids)} tags)."
+        )
+        return P_world
+
+    def _calibrate(self, marker_poses: dict[int, dict]) -> None:
+        """SVD-align measured tag tvecs to the known world layout."""
+        self.get_logger().info("Calibrating world frame via SVD…")
+
+        # Row order must match self._P_world (which was built in
+        # self._corner_ids order).
+        P_cam = np.array(
+            [marker_poses[mid]["tvec"] for mid in self._corner_ids],
+            dtype=np.float64,
+        )
+        P_world = self._P_world
+
+        T_cam_from_world = rigid_transform_svd(P_world, P_cam)
+        self._T_world_from_cam = np.linalg.inv(T_cam_from_world)
+
+        # Ground plane in camera frame is the image of the world z = 0 plane.
+        R_cw = T_cam_from_world[:3, :3]
+        t_cw = T_cam_from_world[:3, 3]
+        normal = R_cw @ np.array([0.0, 0.0, 1.0])
+        d = -float(normal @ t_cw)
+        self._ground_plane = {"normal": normal, "d": d}
+
+        # Per-tag residuals in millimetres for operator feedback.
+        P_world_h = np.hstack([P_world, np.ones((P_world.shape[0], 1))])
+        P_cam_pred = (T_cam_from_world @ P_world_h.T).T[:, :3]
+        errs = np.linalg.norm(P_cam_pred - P_cam, axis=1)
+        max_mm = float(errs.max() * 1000.0)
+        rms_mm = float(np.sqrt(np.mean(errs ** 2)) * 1000.0)
+        per_tag = ", ".join(
+            f"{cid}:{e * 1000.0:.1f}mm"
+            for cid, e in zip(self._corner_ids, errs)
+        )
+
         self._calibrated = True
-        self.get_logger().info("Calibration complete.")
+        self.get_logger().info(
+            f"Calibration complete. Residuals max={max_mm:.1f}mm "
+            f"rms={rms_mm:.1f}mm per-tag=[{per_tag}]"
+        )
 
     # ── Detection publishing ──────────────────────────────────────────────
 
