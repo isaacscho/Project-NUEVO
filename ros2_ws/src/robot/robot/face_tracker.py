@@ -2,7 +2,8 @@ import face_recognition
 import cv2
 import serial
 import struct
-import time
+import os
+import numpy as np
 
 # ============================================
 # UART CONFIGURATION (NUEVO v4 Bridge)
@@ -15,7 +16,6 @@ SYS_CMD_ID = 3
 DC_SET_VELOCITY_ID = 18
 
 def crc16_ccitt(data: bytes) -> int:
-    """Calculates standard CRC16-CCITT for NUEVO v4 frames."""
     crc = 0xFFFF
     for byte in data:
         crc ^= (byte << 8) & 0xFFFF
@@ -27,7 +27,6 @@ def crc16_ccitt(data: bytes) -> int:
     return crc
 
 def build_nuevo_frame(tlv_type: int, payload: bytes, frame_num: int = 1) -> bytes:
-    """Packs standard payloads into the custom TLV wire format."""
     device_id = 0x00
     flags = 0x00
     num_tlvs = 1
@@ -44,6 +43,36 @@ def build_nuevo_frame(tlv_type: int, payload: bytes, frame_num: int = 1) -> byte
     
     return final_header + tlv_data
 
+def load_known_faces(known_faces_dir="known_faces"):
+    """Scans the directory for images and memorizes their facial encodings."""
+    known_encodings = []
+    known_names = []
+    
+    print(f"Scanning '{known_faces_dir}' for known identities...")
+    if not os.path.exists(known_faces_dir):
+        print(f"Warning: Directory '{known_faces_dir}' not found. Creating it now.")
+        os.makedirs(known_faces_dir)
+        return known_encodings, known_names
+
+    for filename in os.listdir(known_faces_dir):
+        if filename.lower().endswith((".jpg", ".jpeg", ".png")):
+            # The name is the filename without the extension
+            name = os.path.splitext(filename)[0]
+            filepath = os.path.join(known_faces_dir, filename)
+            
+            # Load the image and get the encoding
+            image = face_recognition.load_image_file(filepath)
+            encodings = face_recognition.face_encodings(image)
+            
+            if len(encodings) > 0:
+                known_encodings.append(encodings[0])
+                known_names.append(name)
+                print(f" -> Memorized: {name}")
+            else:
+                print(f" -> Could not find a clear face in {filename}")
+                
+    return known_encodings, known_names
+
 def main():
     print("Initializing NUEVO UART Bridge...")
     try:
@@ -52,50 +81,68 @@ def main():
         print(f"Warning: UART not connected ({e}). Running in vision-only mode.")
         arduino = None
 
-    # Initialize the camera
+    # 1. Load the Memory
+    known_face_encodings, known_face_names = load_known_faces()
+
+    # 2. Initialize the camera
     video_capture = cv2.VideoCapture(0)
-    print("Camera active. Using 'face_recognition' library to find faces...")
+    print("\nCamera active. Looking for faces...")
 
     try:
         while True:
-            # Grab a single frame of video
             ret, frame = video_capture.read()
             if not ret:
                 break
                 
-            # Convert the image from BGR color (OpenCV default) to RGB color (face_recognition default)
-            rgb_frame = frame[:, :, ::-1]
+            # Resize frame for faster processing (optional, but recommended for Pi)
+            small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+            rgb_small_frame = small_frame[:, :, ::-1]
 
-            # Find all the faces in the current frame of video
-            face_locations = face_recognition.face_locations(rgb_frame)
+            # Find all face locations and their 128-d encodings in the current frame
+            face_locations = face_recognition.face_locations(rgb_small_frame)
+            face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
             
-            if face_locations:
-                print(f"Found {len(face_locations)} face(s)!")
-                
-                # face_locations returns tuples in (top, right, bottom, left) order
-                top, right, bottom, left = face_locations[0]
-                face_center_x = (left + right) // 2
-                print(f"Primary face centered at X: {face_center_x}")
-                
+            for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
+                # Scale back up face locations since the frame we detected in was scaled to 1/2 size
+                top *= 2
+                right *= 2
+                bottom *= 2
+                left *= 2
+
+                # Default to Unknown
+                name = "Unknown"
+
+                # Check if the face matches any known memory
+                if len(known_face_encodings) > 0:
+                    # Get the mathematical distance to all known faces (lower distance = closer match)
+                    face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+                    best_match_index = np.argmin(face_distances)
+                    
+                    # If the closest match is within the strict tolerance (0.6 is default)
+                    if face_distances[best_match_index] < 0.6:
+                        name = known_face_names[best_match_index]
+
+                # Console Output
+                print(f"Spotted: {name} at X: {(left+right)//2}")
+
                 # ====================================================
                 # HARDWARE ACTUATION
-                # Translate face_center_x into a motor command here
+                # Example: Only move if it is someone you know!
                 # ====================================================
-                if arduino:
+                if arduino and name != "Unknown":
                     pass
-                    # Example payload construction:
                     # payload = struct.pack("<...", ...)
                     # frame = build_nuevo_frame(DC_SET_VELOCITY_ID, payload)
                     # arduino.write(frame)
             
-            # Draw a box around the faces for debugging
-            for (top, right, bottom, left) in face_locations:
-                cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 2)
+                # Draw a box and label around the face for debugging
+                color = (0, 255, 0) if name != "Unknown" else (0, 0, 255) # Green for known, Red for unknown
+                cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
+                cv2.putText(frame, name, (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 1)
                 
-            # Display the resulting image
             cv2.imshow('Video', frame)
             
-            # Hit 'q' on the keyboard to quit!
+            # Hit 'q' to quit
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
