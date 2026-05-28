@@ -1,158 +1,162 @@
-import face_recognition
-import cv2
-import serial
-import struct
 import os
+import cv2
 import numpy as np
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from std_srvs.srv import Trigger
+from cv_bridge import CvBridge
+import face_recognition
 
-# ============================================
-# UART CONFIGURATION (NUEVO v4 Bridge)
-# ============================================
-PORT = "/dev/serial0" 
-BAUD_RATE = 200000
-MAGIC_HEADER = b"NUEV"
+# Explicit paths mapped via the Docker workspace volume
+BASE_DIR = "/ros2_ws/src/vision"
+DATA_DIR = os.path.join(BASE_DIR, "data")
+TARGET_IMAGE_PATH = os.path.join(DATA_DIR, "target.jpg")
 
-SYS_CMD_ID = 3         
-DC_SET_VELOCITY_ID = 18
-
-def crc16_ccitt(data: bytes) -> int:
-    crc = 0xFFFF
-    for byte in data:
-        crc ^= (byte << 8) & 0xFFFF
-        for _ in range(8):
-            if crc & 0x8000:
-                crc = ((crc << 1) ^ 0x1021) & 0xFFFF
-            else:
-                crc = (crc << 1) & 0xFFFF
-    return crc
-
-def build_nuevo_frame(tlv_type: int, payload: bytes, frame_num: int = 1) -> bytes:
-    device_id = 0x00
-    flags = 0x00
-    num_tlvs = 1
-    
-    tlv_len = len(payload)
-    tlv_data = struct.pack("<BB", tlv_type, tlv_len) + payload
-    
-    num_total_bytes = 12 + len(tlv_data)
-    header_fmt = "<4s H H B B B B"
-    temp_header = struct.pack(header_fmt, MAGIC_HEADER, num_total_bytes, 0, device_id, frame_num, num_tlvs, flags)
-    
-    crc = crc16_ccitt(temp_header + tlv_data)
-    final_header = struct.pack(header_fmt, MAGIC_HEADER, num_total_bytes, crc, device_id, frame_num, num_tlvs, flags)
-    
-    return final_header + tlv_data
-
-def load_known_faces(known_faces_dir="known_faces"):
-    """Scans the directory for images and memorizes their facial encodings."""
-    known_encodings = []
-    known_names = []
-    
-    print(f"Scanning '{known_faces_dir}' for known identities...")
-    if not os.path.exists(known_faces_dir):
-        print(f"Warning: Directory '{known_faces_dir}' not found. Creating it now.")
-        os.makedirs(known_faces_dir)
-        return known_encodings, known_names
-
-    for filename in os.listdir(known_faces_dir):
-        if filename.lower().endswith((".jpg", ".jpeg", ".png")):
-            # The name is the filename without the extension
-            name = os.path.splitext(filename)[0]
-            filepath = os.path.join(known_faces_dir, filename)
+class FaceTrackerNode(Node):
+    def __init__(self):
+        super().__init__('face_tracker')
+        
+        # ROS2 Setup
+        self.publisher_ = self.create_publisher(Image, '/vision/tracking_feed', 10)
+        self.srv = self.create_service(Trigger, '/vision/capture_target', self.capture_target_callback)
+        self.bridge = CvBridge()
+        
+        # Hardware Setup: Connects to the Pi loopback camera device
+        self.cap = cv2.VideoCapture(10)
+        if not self.cap.isOpened():
+            self.get_logger().error("Could not open camera at /dev/video10. Verify host loopback service.")
             
-            # Load the image and get the encoding
-            image = face_recognition.load_image_file(filepath)
-            encodings = face_recognition.face_encodings(image)
+        # State Variables
+        self.latest_frame = None
+        self.target_encoding = None
+        
+        # Check for pre-existing tracking image at startup
+        self.bootstrap_existing_target()
+        
+        # Execute processing loop at 10Hz to manage Pi 5 CPU overhead
+        self.timer = self.create_timer(0.1, self.timer_callback)
+        self.get_logger().info("Face Tracker Node successfully initialized.")
+
+    def bootstrap_existing_target(self):
+        """Checks if a target image already exists in the data directory and loads it."""
+        if os.path.exists(TARGET_IMAGE_PATH):
+            self.get_logger().info(f"Found existing target image at {TARGET_IMAGE_PATH}. Loading profile...")
+            try:
+                # Load the raw image file
+                existing_img = face_recognition.load_image_file(TARGET_IMAGE_PATH)
+                # Compute its facial encoding
+                encodings = face_recognition.face_encodings(existing_img)
+                
+                if encodings:
+                    self.target_encoding = encodings[0]
+                    self.get_logger().info("Successfully loaded target profile. Verification mode active.")
+                else:
+                    self.get_logger().warning("Target image found, but no clear face could be resolved from it.")
+            except Exception as e:
+                self.get_logger().error(f"Failed to parse existing target image: {str(e)}")
+
+    def capture_target_callback(self, request, response):
+        """Synchronous service routine to capture a target face from the live feed."""
+        if self.latest_frame is None:
+            response.success = False
+            response.message = "Capture failed: No valid camera frames received yet."
+            return response
+
+        # Convert working frame to RGB for deep learning analysis
+        rgb_frame = cv2.cvtColor(self.latest_frame, cv2.COLOR_BGR2RGB)
+        face_locations = face_recognition.face_locations(rgb_frame)
+
+        if not face_locations:
+            response.success = False
+            response.message = "Capture failed: No face detected in the current frame."
+            self.get_logger().warn("Service called, but no faces are within the frame boundaries.")
+            return response
+
+        # Extract the vector representation of the primary face found
+        encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+        self.target_encoding = encodings[0]
+
+        # Enforce persistence onto the host computer hard drive via the mount boundary
+        try:
+            os.makedirs(DATA_DIR, exist_ok=True)
+            cv2.imwrite(TARGET_IMAGE_PATH, self.latest_frame)
             
-            if len(encodings) > 0:
-                known_encodings.append(encodings[0])
-                known_names.append(name)
-                print(f" -> Memorized: {name}")
-            else:
-                print(f" -> Could not find a clear face in {filename}")
-                
-    return known_encodings, known_names
+            response.success = True
+            response.message = f"Success: Target saved to data/target.jpg. Profile locked."
+            self.get_logger().info(response.message)
+        except Exception as e:
+            response.success = False
+            response.message = f"Failed to write image data to disk: {str(e)}"
+            self.get_logger().error(response.message)
 
-def main():
-    print("Initializing NUEVO UART Bridge...")
-    try:
-        arduino = serial.Serial(PORT, BAUD_RATE, timeout=1)
-    except Exception as e:
-        print(f"Warning: UART not connected ({e}). Running in vision-only mode.")
-        arduino = None
+        return response
 
-    # 1. Load the Memory
-    known_face_encodings, known_face_names = load_known_faces()
+    def timer_callback(self):
+        """Core vision frame processing and publisher loop."""
+        ret, frame = self.cap.read()
+        if not ret:
+            return
+            
+        # Retain a copy of the pristine frame for potential service capture
+        self.latest_frame = frame.copy()
 
-    # 2. Initialize the camera
-    video_capture = cv2.VideoCapture(0)
-    print("\nCamera active. Looking for faces...")
+        # Scale down input array by 50% to optimize calculation speed
+        small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+        rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
-    try:
-        while True:
-            ret, frame = video_capture.read()
-            if not ret:
-                break
-                
-            # Resize frame for faster processing (optional, but recommended for Pi)
-            small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
-            rgb_small_frame = small_frame[:, :, ::-1]
-
-            # Find all face locations and their 128-d encodings in the current frame
-            face_locations = face_recognition.face_locations(rgb_small_frame)
+        # Detect spatial bounding boxes
+        face_locations = face_recognition.face_locations(rgb_small_frame)
+        
+        # Operational Mode 1: Active Verification against a loaded profile
+        if face_locations and self.target_encoding is not None:
             face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
             
             for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
-                # Scale back up face locations since the frame we detected in was scaled to 1/2 size
-                top *= 2
-                right *= 2
-                bottom *= 2
-                left *= 2
-
-                # Default to Unknown
-                name = "Unknown"
-
-                # Check if the face matches any known memory
-                if len(known_face_encodings) > 0:
-                    # Get the mathematical distance to all known faces (lower distance = closer match)
-                    face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
-                    best_match_index = np.argmin(face_distances)
-                    
-                    # If the closest match is within the strict tolerance (0.6 is default)
-                    if face_distances[best_match_index] < 0.6:
-                        name = known_face_names[best_match_index]
-
-                # Console Output
-                print(f"Spotted: {name} at X: {(left+right)//2}")
-
-                # ====================================================
-                # HARDWARE ACTUATION
-                # Example: Only move if it is someone you know!
-                # ====================================================
-                if arduino and name != "Unknown":
-                    pass
-                    # payload = struct.pack("<...", ...)
-                    # frame = build_nuevo_frame(DC_SET_VELOCITY_ID, payload)
-                    # arduino.write(frame)
-            
-                # Draw a box and label around the face for debugging
-                color = (0, 255, 0) if name != "Unknown" else (0, 0, 255) # Green for known, Red for unknown
-                cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
-                cv2.putText(frame, name, (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 1)
+                # Run metric distance calculation between vectors (tolerance 0.6 is optimal)
+                matches = face_recognition.compare_faces([self.target_encoding], face_encoding, tolerance=0.6)
                 
-            cv2.imshow('Video', frame)
-            
-            # Hit 'q' to quit
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+                # Rescale dimensions back up to original coordinate space
+                top *= 2; right *= 2; bottom *= 2; left *= 2
+                
+                if matches[0]:
+                    color = (0, 255, 0)  # Green box for correct target match
+                    label = "TARGET MATCH"
+                else:
+                    color = (0, 0, 255)  # Red box for unrecognized face
+                    label = "Unknown"
+                    
+                # Render visual overlays onto output image matrix
+                cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
+                cv2.rectangle(frame, (left, bottom - 35), (right, bottom), color, cv2.FILLED)
+                cv2.putText(frame, label, (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1)
+        
+        # Operational Mode 2: Awaiting Initial Target Capture
+        elif face_locations:
+            for (top, right, bottom, left) in face_locations:
+                top *= 2; right *= 2; bottom *= 2; left *= 2
+                # Draw neutral Blue box signaling the node is functional but unprovisioned
+                cv2.rectangle(frame, (left, top), (right, bottom), (255, 0, 0), 2)
+                cv2.putText(frame, "Awaiting Target Capture", (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.5, (255, 0, 0), 1)
 
+        # Repackage the OpenCV frame back into a standard ROS network packet and push
+        annotated_msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
+        self.publisher_.publish(annotated_msg)
+
+    def destroy_node(self):
+        self.cap.release()
+        super().destroy_node()
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = FaceTrackerNode()
+    try:
+        rclpy.spin(node)
     except KeyboardInterrupt:
-        print("\nShutting down...")
+        pass
     finally:
-        video_capture.release()
-        cv2.destroyAllWindows()
-        if arduino:
-            arduino.close()
+        node.destroy_node()
+        rclpy.shutdown()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
