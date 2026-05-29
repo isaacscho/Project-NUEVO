@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import time
-import os
-import cv2
 import math
-import numpy as np
-import face_recognition
+import rclpy
+from std_srvs.srv import Trigger
+from std_msgs.msg import Bool
 
+import burger_assemblycode as burger
 from robot.robot import FirmwareState, Robot, Unit
 from robot.hardware_map import Button, DEFAULT_FSM_HZ, LED, Motor
 from robot.util import densify_polyline
 from robot.path_planner import PurePursuitPlanner
-import burger_assemblycode as burger
 
 # ---------------------------------------------------------------------------
 # Configuration & Hardware Tuning
@@ -27,7 +26,6 @@ LEFT_WHEEL_DIR_INVERTED = False
 RIGHT_WHEEL_MOTOR = Motor.DC_M2
 RIGHT_WHEEL_DIR_INVERTED = True
 
-MATCH_TOLERANCE = 0.60
 VISION_STALE_SEC = 3.0
 MIN_DETECTION_CONFIDENCE = 0.50
 
@@ -41,14 +39,14 @@ KITCHEN_PATH_3 = [(0.0, 558.8), (0.0, 711.2)]
 SCAN_PATH_CTRL   = [(0.0, 711.2), (0.0, 3352.8), (609.6, 3352.8), (609.6, 304.8), (1524.0, 304.8), (1524.0, 3352.8), (1828.8, 3352.8)]
 
 CUST_1_PATH_CTRL = [(1828.8, 3352.8), (2133.6, 3352.8), (2133.6, 635.0)]
-CUST_2_PATH_CTRL = [(2133.6, 635.0), (2133.6, 482.6)] # Starts exactly where Cust 1 failed
+CUST_2_PATH_CTRL = [(2133.6, 635.0), (2133.6, 482.6)]
 
-STOP_PATH_1 = [(2133.6, 635.0), (2133.6, 0.0)] # If delivered to Cust 1
-STOP_PATH_2 = [(2133.6, 482.6), (2133.6, 0.0)] # If delivered to Cust 2
+STOP_PATH_1 = [(2133.6, 635.0), (2133.6, 0.0)] 
+STOP_PATH_2 = [(2133.6, 482.6), (2133.6, 0.0)] 
 
 # Global Runtime Variables
-video_capture = None
-target_encoding = None
+current_vision_match = False
+identified_customer = None
 
 # ---------------------------------------------------------------------------
 # Helpers: Hardware & Path Loading
@@ -68,7 +66,6 @@ def configure_robot(robot: Robot) -> None:
     robot.set_tracked_tag_id(TAG_ID)
 
 def load_pure_pursuit_path(robot: Robot, control_points: list) -> None:
-    """Densifies the path and configures the Lidar-enabled Pure Pursuit Planner."""
     path = densify_polyline(control_points, spacing=20.0)
     
     robot._nav_follow_pp_path(
@@ -89,11 +86,10 @@ def load_pure_pursuit_path(robot: Robot, control_points: list) -> None:
     robot.planner.set_path(path)
 
 # ---------------------------------------------------------------------------
-# Helpers: Vision & Biometrics
+# Helpers: Vision & Biometrics (ROS2 Clients)
 # ---------------------------------------------------------------------------
 
 def check_vision_class(robot: Robot, class_name: str, attribute_key: str | None = None, attribute_val: str | None = None) -> bool:
-    """Queries the vision node for a specific detection class/attribute."""
     if not robot.is_vision_active(timeout_s=VISION_STALE_SEC):
         return False
 
@@ -107,46 +103,50 @@ def check_vision_class(robot: Robot, class_name: str, attribute_key: str | None 
         return True
     return False
 
-def capture_and_encode_face() -> bool:
-    global video_capture, target_encoding
-    if video_capture is None:
-        video_capture = cv2.VideoCapture(10)
+def _vision_status_callback(msg):
+    """Background listener updating the match status from face_tracker."""
+    global current_vision_match
+    current_vision_match = msg.data
 
-    ret, frame = video_capture.read()
-    if not ret: return False
-
-    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-    rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+def capture_and_encode_face(robot: Robot) -> bool:
+    """Pings the background face_tracker node to lock in the target."""
+    global identified_customer
+    print("[VISION] Requesting classification from face_tracker...")
     
-    encodings = face_recognition.face_encodings(rgb_frame)
-    if encodings:
-        target_encoding = encodings[0]
+    # NOTE: Assuming your robot wrapper exposes the ROS node as robot.node
+    client = robot.node.create_client(Trigger, '/vision/capture_target')
+    
+    if not client.wait_for_service(timeout_sec=2.0):
+        print("[VISION] ERROR: face_tracker service is offline. Is it running?")
+        return False
+        
+    req = Trigger.Request()
+    future = client.call_async(req)
+    
+    # Briefly pause the FSM to wait for the camera to classify the face
+    rclpy.spin_until_future_complete(robot.node, future)
+    
+    if future.result().success:
+        identified_customer = future.result().message
+        print(f"[VISION] Success! Customer identified as: {identified_customer}")
+        
+        # Subscribe to the live feed so we know when the target is matched later
+        robot.node.create_subscription(Bool, '/vision/match_status', _vision_status_callback, 10)
         return True
+        
+    print(f"[VISION] FAILED: {future.result().message}")
     return False
 
-def verify_live_face(known_encoding) -> bool:
-    global video_capture
-    if video_capture is None:
-        video_capture = cv2.VideoCapture(10)
-
-    ret, frame = video_capture.read()
-    if not ret: return False
-
-    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-    rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-    
-    live_encodings = face_recognition.face_encodings(rgb_frame)
-    for live_face in live_encodings:
-        matches = face_recognition.compare_faces([known_encoding], live_face, tolerance=MATCH_TOLERANCE)
-        if matches[0]: return True
-    return False
+def verify_live_face() -> bool:
+    """Instantly returns the current math calculated by the background node."""
+    global current_vision_match
+    return current_vision_match
 
 # ---------------------------------------------------------------------------
 # Master FSM Loop
 # ---------------------------------------------------------------------------
 
 def run(robot: Robot) -> None:
-    global target_encoding
     configure_robot(robot)
 
     state = "INIT"
@@ -266,39 +266,37 @@ def run(robot: Robot) -> None:
             load_pure_pursuit_path(robot, SCAN_PATH_CTRL)
             state = "NAV_TO_CUSTOMER_SCAN"
 
-        # -- STEP 4: NAVIGATING TO SCAN STATION -----------------------------
+        # ===================================================================
+        # DELIVERY & VERIFICATION
+        # ===================================================================
         elif state == "NAV_TO_CUSTOMER_SCAN":
             if robot._nav_follow_pp_path_loop() != "MOVING":
                 print("[FSM] Scan station reached. Attempting biometric capture...")
                 state = "MEMORIZING_TARGET"
 
-        # -- STEP 5: BIOMETRIC MEMORIZATION ---------------------------------
         elif state == "MEMORIZING_TARGET":
             robot.set_led(LED.BLUE, 255) 
-            if capture_and_encode_face():
-                print("[FSM] Matrix profile stored. Loading Drop-off Path.")
+            if capture_and_encode_face(robot):
+                print(f"[FSM] Profile locked ({identified_customer}). Loading Drop-off Path.")
                 robot.set_led(LED.BLUE, 0)
                 load_pure_pursuit_path(robot, CUST_1_PATH_CTRL)
                 state = "NAV_TO_DROPOFF"
             else:
                 time.sleep(0.5) 
 
-        # -- STEP 6: NAVIGATING TO FIRST DROPOFF ----------------------------
         elif state == "NAV_TO_DROPOFF":
             if robot._nav_follow_pp_path_loop() != "MOVING":
                 print("[FSM] Reached Drop-off zone. Turning left to Customer 1.")
                 state = "TURN_TO_CUST_1"
 
-        # -- STEP 7: TURN 90 DEGREES LEFT -----------------------------------
         elif state == "TURN_TO_CUST_1":
             robot.trigger_actuator_sequence("turn_left_90")
             if robot.is_actuator_sequence_complete():
                 print("[FSM] Facing Customer 1. Verifying biometric matrix...")
                 state = "VERIFY_CUST_1"
 
-        # -- VERIFY FIRST CUSTOMER ------------------------------------------
         elif state == "VERIFY_CUST_1":
-            if verify_live_face(target_encoding):
+            if verify_live_face(): # Checking the background node status instantly
                 print("[VISION] MATCH! Target is Customer 1.")
                 robot.set_led(LED.GREEN, 255)
                 state = "DELIVERING_CUST_1" 
@@ -307,7 +305,6 @@ def run(robot: Robot) -> None:
                 robot.set_led(LED.RED, 255)
                 state = "REJECT_CUST_1_TURN_BACK"
 
-        # -- STEP 9: REALIGN TO PATH (THE REJECTION ROUTINE) ---------------
         elif state == "REJECT_CUST_1_TURN_BACK":
             robot.trigger_actuator_sequence("turn_right_90")
             if robot.is_actuator_sequence_complete():
@@ -315,15 +312,13 @@ def run(robot: Robot) -> None:
                 load_pure_pursuit_path(robot, CUST_2_PATH_CTRL) 
                 state = "NAV_TO_CUST_2"
 
-        # -- STEP 10: NAVIGATING TO SECOND CUSTOMER -------------------------
         elif state == "NAV_TO_CUST_2":
             if robot._nav_follow_pp_path_loop() != "MOVING":
                 print("[FSM] Reached Customer 2. Verifying...")
                 state = "VERIFY_CUST_2"
         
-        # -- VERIFY SECOND CUSTOMER -----------------------------------------
         elif state == "VERIFY_CUST_2":
-            if verify_live_face(target_encoding):
+            if verify_live_face():
                 print("[VISION] MATCH! Target is Customer 2.")
                 robot.set_led(LED.GREEN, 255)
                 state = "DELIVERING_CUST_2" 
@@ -332,23 +327,25 @@ def run(robot: Robot) -> None:
                 robot.shutdown()
                 state = "IDLE"
 
-        # -- DELIVERY TO CUST 1 ---------------------------------------------
+        # ===================================================================
+        # PAYLOAD HANDOFF & END MISSION
+        # ===================================================================
         elif state == "DELIVERING_CUST_1":
-            robot.trigger_actuator_sequence("dropoff_burger")
-            if robot.is_actuator_sequence_complete():
-                print("[FSM] Delivered to Cust 1. Loading Stop Path 1.")
-                load_pure_pursuit_path(robot, STOP_PATH_1)
-                state = "DRIVING_TO_STOP"
-
-        # -- DELIVERY TO CUST 2 ---------------------------------------------
-        elif state == "DELIVERING_CUST_2":
-            robot.trigger_actuator_sequence("dropoff_burger")
-            if robot.is_actuator_sequence_complete():
-                print("[FSM] Delivered to Cust 2. Loading Stop Path 2.")
-                load_pure_pursuit_path(robot, STOP_PATH_2)
-                state = "DRIVING_TO_STOP"
+            print("[FSM] Initiating Customer 1 Hand-off...")
+            burger.dropoff_burger(robot)
             
-        # -- STEP 13: DRIVE TO STOP SIGN ------------------------------------
+            print("[FSM] Delivered to Cust 1. Loading Stop Path 1.")
+            load_pure_pursuit_path(robot, STOP_PATH_1)
+            state = "DRIVING_TO_STOP"
+
+        elif state == "DELIVERING_CUST_2":
+            print("[FSM] Initiating Customer 2 Hand-off...")
+            burger.dropoff_burger(robot)
+            
+            print("[FSM] Delivered to Cust 2. Loading Stop Path 2.")
+            load_pure_pursuit_path(robot, STOP_PATH_2)
+            state = "DRIVING_TO_STOP"
+            
         elif state == "DRIVING_TO_STOP":
             nav_status = robot._nav_follow_pp_path_loop()
             

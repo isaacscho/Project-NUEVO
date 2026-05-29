@@ -4,6 +4,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
+from std_msgs.msg import Bool
 from std_srvs.srv import Trigger
 from cv_bridge import CvBridge
 import face_recognition
@@ -11,7 +12,6 @@ import face_recognition
 # Explicit paths mapped via the Docker workspace volume
 BASE_DIR = "/ros2_ws/src/vision"
 DATA_DIR = os.path.join(BASE_DIR, "data")
-TARGET_IMAGE_PATH = os.path.join(DATA_DIR, "target.jpg")
 
 class FaceTrackerNode(Node):
     def __init__(self):
@@ -19,6 +19,7 @@ class FaceTrackerNode(Node):
         
         # ROS2 Setup
         self.publisher_ = self.create_publisher(Image, '/vision/tracking_feed', 10)
+        self.match_pub = self.create_publisher(Bool, '/vision/match_status', 10)
         self.srv = self.create_service(Trigger, '/vision/capture_target', self.capture_target_callback)
         self.bridge = CvBridge()
         
@@ -39,56 +40,83 @@ class FaceTrackerNode(Node):
         self.get_logger().info("Face Tracker Node successfully initialized.")
 
     def bootstrap_existing_target(self):
-        """Checks if a target image already exists in the data directory and loads it."""
-        if os.path.exists(TARGET_IMAGE_PATH):
-            self.get_logger().info(f"Found existing target image at {TARGET_IMAGE_PATH}. Loading profile...")
-            try:
-                # Load the raw image file
-                existing_img = face_recognition.load_image_file(TARGET_IMAGE_PATH)
-                # Compute its facial encoding
-                encodings = face_recognition.face_encodings(existing_img)
-                
-                if encodings:
-                    self.target_encoding = encodings[0]
-                    self.get_logger().info("Successfully loaded target profile. Verification mode active.")
-                else:
-                    self.get_logger().warning("Target image found, but no clear face could be resolved from it.")
-            except Exception as e:
-                self.get_logger().error(f"Failed to parse existing target image: {str(e)}")
+        """Pre-loads the database profiles for the guy and the girl."""
+        self.guy_encoding = None
+        self.girl_encoding = None
+        self.target_encoding = None # Remains empty until scan station is reached
+
+        # Update these paths to match your exact directory structure
+        guy_path = "/ros2_ws/src/robot/test/guy.jpg"
+        girl_path = "/ros2_ws/src/robot/test/girl.jpg"
+
+        # Load Guy Profile
+        if os.path.exists(guy_path):
+            img = face_recognition.load_image_file(guy_path)
+            encodings = face_recognition.face_encodings(img)
+            if encodings: 
+                self.guy_encoding = encodings[0]
+                self.get_logger().info(f"Loaded guy.jpg from {guy_path}")
+        else:
+            self.get_logger().error(f"Could not find guy.jpg at {guy_path}")
+
+        # Load Girl Profile
+        if os.path.exists(girl_path):
+            img = face_recognition.load_image_file(girl_path)
+            encodings = face_recognition.face_encodings(img)
+            if encodings: 
+                self.girl_encoding = encodings[0]
+                self.get_logger().info(f"Loaded girl.jpg from {girl_path}")
+        else:
+            self.get_logger().error(f"Could not find girl.jpg at {girl_path}")
 
     def capture_target_callback(self, request, response):
-        """Synchronous service routine to capture a target face from the live feed."""
+        """Captures live feed and classifies it as either the guy or the girl."""
         if self.latest_frame is None:
             response.success = False
-            response.message = "Capture failed: No valid camera frames received yet."
+            response.message = "No valid camera frames received yet."
             return response
 
-        # Convert working frame to RGB for deep learning analysis
         rgb_frame = cv2.cvtColor(self.latest_frame, cv2.COLOR_BGR2RGB)
         face_locations = face_recognition.face_locations(rgb_frame)
 
         if not face_locations:
             response.success = False
-            response.message = "Capture failed: No face detected in the current frame."
-            self.get_logger().warn("Service called, but no faces are within the frame boundaries.")
+            response.message = "No face detected in frame."
             return response
 
-        # Extract the vector representation of the primary face found
-        encodings = face_recognition.face_encodings(rgb_frame, face_locations)
-        self.target_encoding = encodings[0]
+        live_encoding = face_recognition.face_encodings(rgb_frame, face_locations)[0]
 
-        # Enforce persistence onto the host computer hard drive via the mount boundary
-        try:
-            os.makedirs(DATA_DIR, exist_ok=True)
-            cv2.imwrite(TARGET_IMAGE_PATH, self.latest_frame)
-            
+        # Compare the live face against our two database profiles
+        is_guy = False
+        is_girl = False
+        
+        if self.guy_encoding is not None:
+            is_guy = face_recognition.compare_faces([self.guy_encoding], live_encoding, tolerance=0.6)[0]
+        if self.girl_encoding is not None:
+            is_girl = face_recognition.compare_faces([self.girl_encoding], live_encoding, tolerance=0.6)[0]
+
+        os.makedirs(DATA_DIR, exist_ok=True)
+
+        if is_guy:
+            self.target_encoding = self.guy_encoding
+            response.message = "guy.jpg"
+            # Save the proof to disk
+            cv2.imwrite(os.path.join(DATA_DIR, "scanned_order_guy.jpg"), self.latest_frame)
             response.success = True
-            response.message = f"Success: Target saved to data/target.jpg. Profile locked."
-            self.get_logger().info(response.message)
-        except Exception as e:
+            self.get_logger().info("Target identified and locked: GUY")
+            
+        elif is_girl:
+            self.target_encoding = self.girl_encoding
+            response.message = "girl.jpg"
+            # Save the proof to disk
+            cv2.imwrite(os.path.join(DATA_DIR, "scanned_order_girl.jpg"), self.latest_frame)
+            response.success = True
+            self.get_logger().info("Target identified and locked: GIRL")
+            
+        else:
             response.success = False
-            response.message = f"Failed to write image data to disk: {str(e)}"
-            self.get_logger().error(response.message)
+            response.message = "Stranger detected. Does not match guy.jpg or girl.jpg."
+            self.get_logger().warn("Unrecognized customer at scan station.")
 
         return response
 
@@ -122,9 +150,11 @@ class FaceTrackerNode(Node):
                 if matches[0]:
                     color = (0, 255, 0)  # Green box for correct target match
                     label = "TARGET MATCH"
+                    self.match_pub.publish(Bool(data=True))
                 else:
                     color = (0, 0, 255)  # Red box for unrecognized face
                     label = "Unknown"
+                    self.match_pub.publish(Bool(data=False))
                     
                 # Render visual overlays onto output image matrix
                 cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
