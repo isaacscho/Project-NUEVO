@@ -11,6 +11,7 @@ from robot.robot import FirmwareState, Robot, Unit
 from robot.hardware_map import Button, DEFAULT_FSM_HZ, LED, Motor
 from robot.util import densify_polyline
 from robot.path_planner import PurePursuitPlanner
+import burger_assemblycode as burger
 
 # ---------------------------------------------------------------------------
 # Configuration & Hardware Tuning
@@ -178,42 +179,92 @@ def run(robot: Robot) -> None:
                 load_pure_pursuit_path(robot, KITCHEN_PATH_1)
                 state = "NAV_KITCHEN_1"
 
-        # -- KITCHEN STOP 1 (406.4mm) ---------------------------------------
+        # ===================================================================
+        # KITCHEN SEQUENCE 1 (BOTTOM BUN)
+        # ===================================================================
         elif state == "NAV_KITCHEN_1":
             if robot._nav_follow_pp_path_loop() != "MOVING":
-                print("[FSM] Arrived at Item 1. Executing 90-deg pickup.")
-                state = "PICKUP_ITEM_1"
+                print("[FSM] Arrived at Item 1. Turning 90 degrees left.")
+                state = "TURN_LEFT_ITEM_1"
 
-        elif state == "PICKUP_ITEM_1":
-            robot.trigger_actuator_sequence("grab_item_1") 
+        elif state == "TURN_LEFT_ITEM_1":
+            robot.trigger_actuator_sequence("turn_left_90") 
             if robot.is_actuator_sequence_complete():
-                load_pure_pursuit_path(robot, KITCHEN_PATH_2)
-                state = "NAV_KITCHEN_2"
+                state = "GRAB_ITEM_1"
 
-        # -- KITCHEN STOP 2 (558.8mm) ---------------------------------------
+        elif state == "GRAB_ITEM_1":
+            burger.grab_and_lift_1(robot)
+            print("[FSM] Item 1 secured. Turning 90 degrees right to face forward.")
+            state = "TURN_RIGHT_ITEM_1"
+
+        elif state == "TURN_RIGHT_ITEM_1":
+            robot.trigger_actuator_sequence("turn_right_90")
+            if robot.is_actuator_sequence_complete():
+                state = "STOW_ITEM_1"
+
+        elif state == "STOW_ITEM_1":
+            burger.stow_item_1(robot)
+            print("[FSM] Item 1 stowed. Loading Kitchen Path 2.")
+            load_pure_pursuit_path(robot, KITCHEN_PATH_2)
+            state = "NAV_KITCHEN_2"
+
+        # ===================================================================
+        # KITCHEN SEQUENCE 2 (PATTY)
+        # ===================================================================
         elif state == "NAV_KITCHEN_2":
             if robot._nav_follow_pp_path_loop() != "MOVING":
-                print("[FSM] Arrived at Item 2. Executing 90-deg pickup.")
-                state = "PICKUP_ITEM_2"
+                print("[FSM] Arrived at Item 2. Turning 90 degrees left.")
+                state = "TURN_LEFT_ITEM_2"
 
-        elif state == "PICKUP_ITEM_2":
-            robot.trigger_actuator_sequence("grab_item_2")
+        elif state == "TURN_LEFT_ITEM_2":
+            robot.trigger_actuator_sequence("turn_left_90") 
             if robot.is_actuator_sequence_complete():
-                load_pure_pursuit_path(robot, KITCHEN_PATH_3)
-                state = "NAV_KITCHEN_3"
+                state = "GRAB_ITEM_2"
 
-        # -- KITCHEN STOP 3 (711.2mm) ---------------------------------------
+        elif state == "GRAB_ITEM_2":
+            burger.grab_and_lift_2(robot)
+            print("[FSM] Item 2 secured. Turning 90 degrees right to face forward.")
+            state = "TURN_RIGHT_ITEM_2"
+
+        elif state == "TURN_RIGHT_ITEM_2":
+            robot.trigger_actuator_sequence("turn_right_90")
+            if robot.is_actuator_sequence_complete():
+                state = "STOW_ITEM_2"
+
+        elif state == "STOW_ITEM_2":
+            burger.stow_item_2(robot)
+            print("[FSM] Item 2 stowed. Loading Kitchen Path 3.")
+            load_pure_pursuit_path(robot, KITCHEN_PATH_3)
+            state = "NAV_KITCHEN_3"
+
+        # ===================================================================
+        # KITCHEN SEQUENCE 3 (TOP BUN)
+        # ===================================================================
         elif state == "NAV_KITCHEN_3":
             if robot._nav_follow_pp_path_loop() != "MOVING":
-                print("[FSM] Arrived at Item 3. Executing final pickup.")
-                state = "PICKUP_ITEM_3"
+                print("[FSM] Arrived at Item 3. Turning 90 degrees left.")
+                state = "TURN_LEFT_ITEM_3"
 
-        elif state == "PICKUP_ITEM_3":
-            robot.trigger_actuator_sequence("grab_item_3")
+        elif state == "TURN_LEFT_ITEM_3":
+            robot.trigger_actuator_sequence("turn_left_90") 
             if robot.is_actuator_sequence_complete():
-                print("[FSM] Burger fully assembled. Navigating to Scan Station.")
-                load_pure_pursuit_path(robot, SCAN_PATH_CTRL)
-                state = "NAV_TO_CUSTOMER_SCAN"
+                state = "GRAB_ITEM_3"
+
+        elif state == "GRAB_ITEM_3":
+            burger.grab_and_lift_3(robot)
+            print("[FSM] Item 3 secured. Turning 90 degrees right to face forward.")
+            state = "TURN_RIGHT_ITEM_3"
+
+        elif state == "TURN_RIGHT_ITEM_3":
+            robot.trigger_actuator_sequence("turn_right_90")
+            if robot.is_actuator_sequence_complete():
+                state = "STOW_ITEM_3"
+
+        elif state == "STOW_ITEM_3":
+            burger.stow_item_3(robot)
+            print("[FSM] Burger fully assembled! Navigating to Scan Station.")
+            load_pure_pursuit_path(robot, SCAN_PATH_CTRL)
+            state = "NAV_TO_CUSTOMER_SCAN"
 
         # -- STEP 4: NAVIGATING TO SCAN STATION -----------------------------
         elif state == "NAV_TO_CUSTOMER_SCAN":
