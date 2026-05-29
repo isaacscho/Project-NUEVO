@@ -1,156 +1,321 @@
-"""
-traffic_light_leds.py - vision-triggered LED control
-====================================================
-This example reads traffic-light detections from the vision node and uses the
-Robot API to light the matching onboard LED.
-
-HOW TO RUN
-----------
-Start the vision node in another terminal:
-
-    ros2 run vision vision_node
-
-Then copy this file over main.py and restart the robot node:
-
-    cp examples/traffic_light_leds.py main.py
-    ros2 run robot robot
-
-WHAT THE ROBOT DOES
--------------------
-If a red traffic light is detected, the red LED turns on.
-If a green traffic light is detected, the green LED turns on.
-If no new red/green traffic light is seen for 2 seconds, all LEDs turn off.
-
-WHAT THIS TEACHES
------------------
-1. Reading vision results through the Robot API
-2. Finding a specific detected class and reading its attributes
-3. Holding an output for a short time without blocking the FSM loop
-"""
-
 from __future__ import annotations
 
 import time
+import os
+import cv2
+import math
+import numpy as np
+import face_recognition
 
-from robot.hardware_map import DEFAULT_FSM_HZ, LED, POSITION_UNIT
-from robot.robot import FirmwareState, Robot
-
+from robot.robot import FirmwareState, Robot, Unit
+from robot.hardware_map import Button, DEFAULT_FSM_HZ, LED, Motor
+from robot.util import densify_polyline
+from robot.path_planner import PurePursuitPlanner
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Configuration & Hardware Tuning
 # ---------------------------------------------------------------------------
+TAG_ID = 22
+POSITION_UNIT = Unit.MM
+WHEEL_DIAMETER = 76.2
+WHEEL_BASE = 355.6
+INITIAL_THETA_DEG = 90.0
 
-LED_BRIGHTNESS = 255
-LIGHT_HOLD_SEC = 2.0
+LEFT_WHEEL_MOTOR = Motor.DC_M1
+LEFT_WHEEL_DIR_INVERTED = False
+RIGHT_WHEEL_MOTOR = Motor.DC_M2
+RIGHT_WHEEL_DIR_INVERTED = True
+
+MATCH_TOLERANCE = 0.60
 VISION_STALE_SEC = 3.0
-MIN_TRAFFIC_LIGHT_CONFIDENCE = 0.50
-
+MIN_DETECTION_CONFIDENCE = 0.50
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Mission Path Definitions 
+# ---------------------------------------------------------------------------
+KITCHEN_PATH_1 = [(0.0, 0.0), (0.0, 406.4)]
+KITCHEN_PATH_2 = [(0.0, 406.4), (0.0, 558.8)]
+KITCHEN_PATH_3 = [(0.0, 558.8), (0.0, 711.2)]
+
+SCAN_PATH_CTRL   = [(0.0, 711.2), (0.0, 3352.8), (609.6, 3352.8), (609.6, 304.8), (1524.0, 304.8), (1524.0, 3352.8), (1828.8, 3352.8)]
+
+CUST_1_PATH_CTRL = [(1828.8, 3352.8), (2133.6, 3352.8), (2133.6, 635.0)]
+CUST_2_PATH_CTRL = [(2133.6, 635.0), (2133.6, 482.6)] # Starts exactly where Cust 1 failed
+
+STOP_PATH_1 = [(2133.6, 635.0), (2133.6, 0.0)] # If delivered to Cust 1
+STOP_PATH_2 = [(2133.6, 482.6), (2133.6, 0.0)] # If delivered to Cust 2
+
+# Global Runtime Variables
+video_capture = None
+target_encoding = None
+
+# ---------------------------------------------------------------------------
+# Helpers: Hardware & Path Loading
 # ---------------------------------------------------------------------------
 
 def configure_robot(robot: Robot) -> None:
     robot.set_unit(POSITION_UNIT)
-    robot.enable_vision()
+    robot.set_odometry_parameters(
+        wheel_diameter=WHEEL_DIAMETER,
+        wheel_base=WHEEL_BASE,
+        initial_theta_deg=INITIAL_THETA_DEG,
+        left_motor_id=LEFT_WHEEL_MOTOR,
+        left_motor_dir_inverted=LEFT_WHEEL_DIR_INVERTED,
+        right_motor_id=RIGHT_WHEEL_MOTOR,
+        right_motor_dir_inverted=RIGHT_WHEEL_DIR_INVERTED,
+    )
+    robot.set_tracked_tag_id(TAG_ID)
 
-
-def start_robot(robot: Robot) -> None:
-    current = robot.get_state()
-    if current in (FirmwareState.ESTOP, FirmwareState.ERROR):
-        robot.reset_estop()
-    robot.set_state(FirmwareState.RUNNING)
-
-
-def dim_all_leds(robot: Robot) -> None:
-    for led in (LED.RED, LED.GREEN, LED.BLUE, LED.ORANGE, LED.PURPLE):
-        robot.set_led(led, 0)
-
-
-def show_traffic_light_color(robot: Robot, color: str) -> None:
-    if color == "red":
-        robot.set_led(LED.RED, LED_BRIGHTNESS)
-        robot.set_led(LED.GREEN, 0)
-    elif color == "green":
-        robot.set_led(LED.RED, 0)
-        robot.set_led(LED.GREEN, LED_BRIGHTNESS)
-
-
-def find_traffic_light_color(robot: Robot) -> str | None:
-    """Return the best recent red/green traffic-light result, or None."""
-    if not robot.is_vision_active(timeout_s=VISION_STALE_SEC):
-        return None
-
-    best_color = None
-    best_confidence = -1.0
-
-    for detection in robot.get_detections("traffic light"):
-        confidence = float(detection["confidence"])
-        if confidence < MIN_TRAFFIC_LIGHT_CONFIDENCE:
-            continue
-
-        attributes = detection.get("attributes", {})
-        color_attribute = attributes.get("color", {})
-        color = color_attribute.get("value")
-        if color not in ("red", "green"):
-            continue
-
-        if confidence > best_confidence:
-            best_confidence = confidence
-            best_color = str(color)
-
-    return best_color
-
+def load_pure_pursuit_path(robot: Robot, control_points: list) -> None:
+    """Densifies the path and configures the Lidar-enabled Pure Pursuit Planner."""
+    path = densify_polyline(control_points, spacing=20.0)
+    
+    robot._nav_follow_pp_path(
+        lookahead_distance=100.0,
+        max_linear_speed=140.0,
+        max_angular_speed=1.5,
+        goal_tolerance=20.0,
+        obstacles_range=450.0,
+        view_angle=math.radians(70.0),
+        safe_dist=250.0,
+        avoidance_delay=150,
+        alpha_Ld=0.7,
+        offset=270.0,
+        lane_width=500.0,
+        obstacle_avoidance=True,
+        x_L=300.0,
+    )
+    robot.planner.set_path(path)
 
 # ---------------------------------------------------------------------------
-# run() - entry point called by the robot node
+# Helpers: Vision & Biometrics
+# ---------------------------------------------------------------------------
+
+def check_vision_class(robot: Robot, class_name: str, attribute_key: str | None = None, attribute_val: str | None = None) -> bool:
+    """Queries the vision node for a specific detection class/attribute."""
+    if not robot.is_vision_active(timeout_s=VISION_STALE_SEC):
+        return False
+
+    for detection in robot.get_detections(class_name):
+        if float(detection.get("confidence", 0)) < MIN_DETECTION_CONFIDENCE:
+            continue
+        if attribute_key and attribute_val:
+            attributes = detection.get("attributes", {})
+            if attributes.get(attribute_key, {}).get("value") != attribute_val:
+                continue
+        return True
+    return False
+
+def capture_and_encode_face() -> bool:
+    global video_capture, target_encoding
+    if video_capture is None:
+        video_capture = cv2.VideoCapture(10)
+
+    ret, frame = video_capture.read()
+    if not ret: return False
+
+    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+    rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+    
+    encodings = face_recognition.face_encodings(rgb_frame)
+    if encodings:
+        target_encoding = encodings[0]
+        return True
+    return False
+
+def verify_live_face(known_encoding) -> bool:
+    global video_capture
+    if video_capture is None:
+        video_capture = cv2.VideoCapture(10)
+
+    ret, frame = video_capture.read()
+    if not ret: return False
+
+    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+    rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+    
+    live_encodings = face_recognition.face_encodings(rgb_frame)
+    for live_face in live_encodings:
+        matches = face_recognition.compare_faces([known_encoding], live_face, tolerance=MATCH_TOLERANCE)
+        if matches[0]: return True
+    return False
+
+# ---------------------------------------------------------------------------
+# Master FSM Loop
 # ---------------------------------------------------------------------------
 
 def run(robot: Robot) -> None:
+    global target_encoding
     configure_robot(robot)
 
     state = "INIT"
-    lights_off_at = 0.0
-    last_shown_color = None
-
     period = 1.0 / float(DEFAULT_FSM_HZ)
     next_tick = time.monotonic()
 
     while True:
 
-        # -- INIT -----------------------------------------------------------
         if state == "INIT":
-            start_robot(robot)
-            dim_all_leds(robot)
-            print("[FSM] WATCHING - show a red or green traffic light")
-            state = "WATCHING"
+            robot.set_state(FirmwareState.RUNNING)
+            robot.reset_odometry()
+            robot.wait_for_pose_update(timeout=0.2)
+            print("[FSM] INIT Complete. Transitioning to IDLE.")
+            state = "IDLE"
 
-        # -- WATCHING -------------------------------------------------------
-        elif state == "WATCHING":
-            now = time.monotonic()
+        # -- STEP 1: IDLE ---------------------------------------------------
+        elif state == "IDLE":
+            robot.set_led(LED.GREEN, 0)
+            robot.set_led(LED.ORANGE, 255)
+            robot._draw_lidar_obstacles()
+            
+            if robot.get_button(Button.BTN_1):
+                print("[FSM] BTN_1 pressed. Transitioning to WAITING_FOR_GREEN.")
+                state = "WAITING_FOR_GREEN"
 
-            traffic_light_color = find_traffic_light_color(robot)
+        # -- WAITING FOR GREEN LIGHT ----------------------------------------
+        elif state == "WAITING_FOR_GREEN":
+            if check_vision_class(robot, "traffic light", "color", "green"):
+                print("[FSM] Green light! Starting Kitchen Sequence 1.")
+                load_pure_pursuit_path(robot, KITCHEN_PATH_1)
+                state = "NAV_KITCHEN_1"
 
-            if traffic_light_color in ("red", "green"):
-                show_traffic_light_color(robot, traffic_light_color)
-                lights_off_at = now + LIGHT_HOLD_SEC
+        # -- KITCHEN STOP 1 (406.4mm) ---------------------------------------
+        elif state == "NAV_KITCHEN_1":
+            if robot._nav_follow_pp_path_loop() != "MOVING":
+                print("[FSM] Arrived at Item 1. Executing 90-deg pickup.")
+                state = "PICKUP_ITEM_1"
 
-                if traffic_light_color != last_shown_color:
-                    print(f"[VISION] traffic light: {traffic_light_color}")
-                last_shown_color = traffic_light_color
+        elif state == "PICKUP_ITEM_1":
+            robot.trigger_actuator_sequence("grab_item_1") 
+            if robot.is_actuator_sequence_complete():
+                load_pure_pursuit_path(robot, KITCHEN_PATH_2)
+                state = "NAV_KITCHEN_2"
 
-            elif lights_off_at > 0.0 and now >= lights_off_at:
-                dim_all_leds(robot)
-                lights_off_at = 0.0
-                if last_shown_color is not None:
-                    print("[VISION] no recent red/green light - LEDs off")
-                last_shown_color = None
+        # -- KITCHEN STOP 2 (558.8mm) ---------------------------------------
+        elif state == "NAV_KITCHEN_2":
+            if robot._nav_follow_pp_path_loop() != "MOVING":
+                print("[FSM] Arrived at Item 2. Executing 90-deg pickup.")
+                state = "PICKUP_ITEM_2"
 
-            # Generic API version for custom objects:
-            # detections = robot.get_detections("my_object")
-            # value = robot.get_detection_attribute("my_object", "my_attribute")
+        elif state == "PICKUP_ITEM_2":
+            robot.trigger_actuator_sequence("grab_item_2")
+            if robot.is_actuator_sequence_complete():
+                load_pure_pursuit_path(robot, KITCHEN_PATH_3)
+                state = "NAV_KITCHEN_3"
 
-        # -- Tick-rate control ---------------------------------------------
+        # -- KITCHEN STOP 3 (711.2mm) ---------------------------------------
+        elif state == "NAV_KITCHEN_3":
+            if robot._nav_follow_pp_path_loop() != "MOVING":
+                print("[FSM] Arrived at Item 3. Executing final pickup.")
+                state = "PICKUP_ITEM_3"
+
+        elif state == "PICKUP_ITEM_3":
+            robot.trigger_actuator_sequence("grab_item_3")
+            if robot.is_actuator_sequence_complete():
+                print("[FSM] Burger fully assembled. Navigating to Scan Station.")
+                load_pure_pursuit_path(robot, SCAN_PATH_CTRL)
+                state = "NAV_TO_CUSTOMER_SCAN"
+
+        # -- STEP 4: NAVIGATING TO SCAN STATION -----------------------------
+        elif state == "NAV_TO_CUSTOMER_SCAN":
+            if robot._nav_follow_pp_path_loop() != "MOVING":
+                print("[FSM] Scan station reached. Attempting biometric capture...")
+                state = "MEMORIZING_TARGET"
+
+        # -- STEP 5: BIOMETRIC MEMORIZATION ---------------------------------
+        elif state == "MEMORIZING_TARGET":
+            robot.set_led(LED.BLUE, 255) 
+            if capture_and_encode_face():
+                print("[FSM] Matrix profile stored. Loading Drop-off Path.")
+                robot.set_led(LED.BLUE, 0)
+                load_pure_pursuit_path(robot, CUST_1_PATH_CTRL)
+                state = "NAV_TO_DROPOFF"
+            else:
+                time.sleep(0.5) 
+
+        # -- STEP 6: NAVIGATING TO FIRST DROPOFF ----------------------------
+        elif state == "NAV_TO_DROPOFF":
+            if robot._nav_follow_pp_path_loop() != "MOVING":
+                print("[FSM] Reached Drop-off zone. Turning left to Customer 1.")
+                state = "TURN_TO_CUST_1"
+
+        # -- STEP 7: TURN 90 DEGREES LEFT -----------------------------------
+        elif state == "TURN_TO_CUST_1":
+            robot.trigger_actuator_sequence("turn_left_90")
+            if robot.is_actuator_sequence_complete():
+                print("[FSM] Facing Customer 1. Verifying biometric matrix...")
+                state = "VERIFY_CUST_1"
+
+        # -- VERIFY FIRST CUSTOMER ------------------------------------------
+        elif state == "VERIFY_CUST_1":
+            if verify_live_face(target_encoding):
+                print("[VISION] MATCH! Target is Customer 1.")
+                robot.set_led(LED.GREEN, 255)
+                state = "DELIVERING_CUST_1" 
+            else:
+                print("[VISION] NO MATCH. Re-aligning...")
+                robot.set_led(LED.RED, 255)
+                state = "REJECT_CUST_1_TURN_BACK"
+
+        # -- STEP 9: REALIGN TO PATH (THE REJECTION ROUTINE) ---------------
+        elif state == "REJECT_CUST_1_TURN_BACK":
+            robot.trigger_actuator_sequence("turn_right_90")
+            if robot.is_actuator_sequence_complete():
+                print("[FSM] Re-aligned. Loading path to Customer 2.")
+                load_pure_pursuit_path(robot, CUST_2_PATH_CTRL) 
+                state = "NAV_TO_CUST_2"
+
+        # -- STEP 10: NAVIGATING TO SECOND CUSTOMER -------------------------
+        elif state == "NAV_TO_CUST_2":
+            if robot._nav_follow_pp_path_loop() != "MOVING":
+                print("[FSM] Reached Customer 2. Verifying...")
+                state = "VERIFY_CUST_2"
+        
+        # -- VERIFY SECOND CUSTOMER -----------------------------------------
+        elif state == "VERIFY_CUST_2":
+            if verify_live_face(target_encoding):
+                print("[VISION] MATCH! Target is Customer 2.")
+                robot.set_led(LED.GREEN, 255)
+                state = "DELIVERING_CUST_2" 
+            else:
+                print("[FSM] FATAL ERROR: Neither customer matched.")
+                robot.shutdown()
+                state = "IDLE"
+
+        # -- DELIVERY TO CUST 1 ---------------------------------------------
+        elif state == "DELIVERING_CUST_1":
+            robot.trigger_actuator_sequence("dropoff_burger")
+            if robot.is_actuator_sequence_complete():
+                print("[FSM] Delivered to Cust 1. Loading Stop Path 1.")
+                load_pure_pursuit_path(robot, STOP_PATH_1)
+                state = "DRIVING_TO_STOP"
+
+        # -- DELIVERY TO CUST 2 ---------------------------------------------
+        elif state == "DELIVERING_CUST_2":
+            robot.trigger_actuator_sequence("dropoff_burger")
+            if robot.is_actuator_sequence_complete():
+                print("[FSM] Delivered to Cust 2. Loading Stop Path 2.")
+                load_pure_pursuit_path(robot, STOP_PATH_2)
+                state = "DRIVING_TO_STOP"
+            
+        # -- STEP 13: DRIVE TO STOP SIGN ------------------------------------
+        elif state == "DRIVING_TO_STOP":
+            nav_status = robot._nav_follow_pp_path_loop()
+            
+            if check_vision_class(robot, "stop sign"):
+                print("[FSM] Stop sign detected! Halting platform and returning to IDLE.")
+                robot.shutdown()
+                state = "IDLE"
+            elif nav_status != "MOVING":
+                print("[FSM] Reached end of path without seeing stop sign. Halting.")
+                state = "IDLE"
+
+        # -- Emergency Stop Interrupt
+        if robot.get_button(Button.BTN_2):
+            print("BTN_2 pressed. Emergency stopping robot.")
+            robot.shutdown()
+            state = "IDLE"
+
+        # -- FSM Refresh Rate Control --------------------------------------
         next_tick += period
         sleep_s = next_tick - time.monotonic()
         if sleep_s > 0.0:
