@@ -171,7 +171,7 @@ def capture_and_encode_face(robot: Robot) -> bool:
 
     print("[VISION] Requesting classification from face_tracker...")
 
-    client = robot.node.create_client(Trigger, "/vision/capture_target")
+    client = robot._node.create_client(Trigger, "/vision/capture_target")
 
     if not client.wait_for_service(timeout_sec=2.0):
         print("[VISION] ERROR: face_tracker service is offline. Is it running?")
@@ -180,7 +180,7 @@ def capture_and_encode_face(robot: Robot) -> bool:
     request = Trigger.Request()
     future = client.call_async(request)
 
-    rclpy.spin_until_future_complete(robot.node, future)
+    rclpy.spin_until_future_complete(robot._node, future)
 
     result = future.result()
 
@@ -192,7 +192,7 @@ def capture_and_encode_face(robot: Robot) -> bool:
         identified_customer = result.message
         print(f"[VISION] Success! Customer identified as: {identified_customer}")
 
-        vision_match_subscription = robot.node.create_subscription(
+        vision_match_subscription = robot._node.create_subscription(
             Bool,
             "/vision/match_status",
             _vision_status_callback,
@@ -417,7 +417,8 @@ def run(robot: Robot) -> None:
             robot.shutdown()
             state = "IDLE"
 
-        rclpy.spin_once(robot.node, timeout_sec=0.0)
+        # Allow ROS callbacks to update vision match status.
+        rclpy.spin_once(robot._node, timeout_sec=0.0)
 
         # -------------------------------------------------------------------
         # FSM Refresh Rate Control
@@ -430,6 +431,7 @@ def run(robot: Robot) -> None:
             time.sleep(sleep_s)
         else:
             next_tick = time.monotonic()
+
 
 def main(args=None):
     rclpy.init(args=args)
