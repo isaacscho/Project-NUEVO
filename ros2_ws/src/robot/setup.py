@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'robot = robot.main:main',
             'main = robot.main:main',
             'face_tracker = robot.face_tracker:main',
             'test_stepper_motor = robot.test_stepper_motor:main',

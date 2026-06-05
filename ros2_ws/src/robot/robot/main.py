@@ -430,3 +430,22 @@ def run(robot: Robot) -> None:
             time.sleep(sleep_s)
         else:
             next_tick = time.monotonic()
+
+def main(args=None):
+    rclpy.init(args=args)
+
+    node = rclpy.create_node("robot")
+    robot = Robot(node)
+
+    try:
+        run(robot)
+    except KeyboardInterrupt:
+        print("[FSM] Keyboard interrupt. Shutting down robot.")
+        robot.shutdown()
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()
