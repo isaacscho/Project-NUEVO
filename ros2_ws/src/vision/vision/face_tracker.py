@@ -118,7 +118,13 @@ class FaceTracker:
         if not face_locations:
             return False
 
-        face_encodings = face_recognition.face_encodings(small_frame, face_locations)
+        face_encodings = face_recognition.face_encodings(
+            small_frame,
+            face_locations,
+        )
+
+        if not face_encodings:
+            return False
 
         for encoding in face_encodings:
             matches = face_recognition.compare_faces(
