@@ -53,7 +53,7 @@ case "$PI_CAMERA_PRODUCER" in
         log "feeding $PI_CAMERA_DEVICE at ${PI_CAMERA_WIDTH}x${PI_CAMERA_HEIGHT}@${PI_CAMERA_FPS} as $PI_CAMERA_PIXEL_FORMAT"
         rpicam-vid \
             --nopreview \
-            --rotation "${PI_CAMERA_ROTATION:-0}" \
+            --rotation 90 \
             --width "$PI_CAMERA_WIDTH" \
             --height "$PI_CAMERA_HEIGHT" \
             --framerate "$PI_CAMERA_FPS" \
