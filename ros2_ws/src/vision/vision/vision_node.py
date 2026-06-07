@@ -77,15 +77,6 @@ class VisionNode(Node):
     def __init__(self) -> None:
         super().__init__("vision_node")
 
-        self._latest_frame = None
-        self._face_tracker = FaceTracker(logger=self.get_logger())
-        self._match_pub = self.create_publisher(Bool, "/vision/match_status", 10)
-        self._capture_srv = self.create_service(
-            Trigger,
-            "/vision/capture_target",
-            self._capture_target_callback,
-        )
-
         self._share_data_dir = Path(get_package_share_directory("vision")) / "data"
         self._source_data_dir = Path("/ros2_ws/src/vision/data")
         model_default = default_model_path(self._source_data_dir, self._share_data_dir)
@@ -127,6 +118,16 @@ class VisionNode(Node):
         self._log_interval_sec = max(1.0, float(self.get_parameter("log_interval_sec").value))
 
         self._publisher = self.create_publisher(VisionDetectionArray, "/vision/detections", 10)
+
+        self._latest_frame = None
+        self._face_tracker = FaceTracker(logger=self.get_logger())
+        self._match_pub = self.create_publisher(Bool, "/vision/match_status", 10)
+        self._capture_srv = self.create_service(
+            Trigger,
+            "/vision/capture_target",
+            self._capture_target_callback,
+        )
+
         self._camera = ManagedCamera(
             device=self._camera_device,
             width=self._camera_width,
