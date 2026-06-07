@@ -4,20 +4,31 @@ import math
 import time
 
 import rclpy
-from std_msgs.msg import Bool
 from std_srvs.srv import Trigger
 
 from robot import burger_assemblycode as burger
-from robot.hardware_map import Button, DEFAULT_FSM_HZ, LED, Motor
 from robot.robot import FirmwareState, Robot, Unit
 from robot.util import densify_polyline
+
+from robot.hardware_map import (
+    Button,
+    DEFAULT_FSM_HZ,
+    LED,
+    Motor,
+    LIDAR_FOV_DEG,
+    LIDAR_MOUNT_THETA_DEG,
+    LIDAR_MOUNT_X_MM,
+    LIDAR_MOUNT_Y_MM,
+    LIDAR_RANGE_MAX_MM,
+    LIDAR_RANGE_MIN_MM,
+)
 
 
 # ---------------------------------------------------------------------------
 # Configuration & Hardware Tuning
 # ---------------------------------------------------------------------------
 
-TAG_ID = 22
+#TAG_ID = 22
 
 POSITION_UNIT = Unit.MM
 
@@ -39,51 +50,67 @@ MIN_DETECTION_CONFIDENCE = 0.50
 # Mission Path Definitions
 # ---------------------------------------------------------------------------
 
-KITCHEN_PATH_1 = [(0.0, 0.0), (0.0, 406.4)]
+KITCHEN_PATH_1 = [
+    (0.0, 0.0),
+    (-180.0, 300.0),
+    (-180.0, 372.5),
+]
 
-KITCHEN_PATH_2 = [(0.0, 406.4), (0.0, 558.8)]
+KITCHEN_PATH_2 = [
+    (-180.0, 372.5),
+    (-180.0, 512.2),
+]
 
-KITCHEN_PATH_3 = [(0.0, 558.8), (0.0, 711.2)]
+KITCHEN_PATH_3 = [
+    (-180.0, 512.2),
+    (-180.0, 651.9),
+]
 
 SCAN_PATH_CTRL = [
-    (0.0, 711.2),
-    (0.0, 3352.8),
-    (609.6, 3352.8),
-    (609.6, 304.8),
-    (1524.0, 304.8),
-    (1524.0, 3352.8),
-    (1828.8, 3352.8),
+    (-180.0, 651.9),
+    (0.0, 760.0),
+    (0.0, 3073.4),
+    (558.8, 3073.4),
+    (558.8, 279.4),
+    (1397.0, 279.4),
+    (1397.0, 3073.4),
+    (1676.4, 3073.4),
 ]
 
 CUST_1_PATH_CTRL = [
-    (1828.8, 3352.8),
-    (2133.6, 3352.8),
-    (2133.6, 635.0),
+    (1676.4, 3073.4),
+    (1955.8, 3073.4),
+    (1955.8, 700.0),
+    (1775.8, 630.0),
+    (1775.8, 582.1),
 ]
 
 CUST_2_PATH_CTRL = [
-    (2133.6, 635.0),
-    (2133.6, 482.6),
+    (1676.4, 3073.4),
+    (1955.8, 3073.4),
+    (1955.8, 560.0),
+    (1775.8, 500.0),
+    (1775.8, 442.4),
 ]
 
 STOP_PATH_1 = [
-    (2133.6, 635.0),
-    (2133.6, 0.0),
+    (1775.8, 582.1),
+    (1955.8, 530.0),
+    (1955.8, 442.4),
 ]
 
-STOP_PATH_2 = [
-    (2133.6, 482.6),
-    (2133.6, 0.0),
-]
+TRAFFIC_LIGHT_LOOK_DEG = 25.0
+TURN_TOLERANCE_DEG = 3.0
 
+POST_DELIVERY_ROLL_SEC = 2.0
+STOP_SIGN_LOOK_RIGHT_DEG = -25.0
+STOP_SIGN_SCAN_TIMEOUT_SEC = 2.0
 
 # ---------------------------------------------------------------------------
 # Global Runtime Variables
 # ---------------------------------------------------------------------------
 
-current_vision_match = False
 identified_customer = None
-vision_match_subscription = None
 
 
 # ---------------------------------------------------------------------------
@@ -98,10 +125,6 @@ def start_robot(robot: Robot) -> None:
 
 
 def configure_robot(robot: Robot) -> None:
-    robot.enable_vision()
-
-    robot.enable_lidar()
-    robot.start_lidar_world_publisher()
 
     robot.set_unit(POSITION_UNIT)
 
@@ -115,7 +138,22 @@ def configure_robot(robot: Robot) -> None:
         right_motor_dir_inverted=RIGHT_WHEEL_DIR_INVERTED,
     )
 
-    robot.set_tracked_tag_id(TAG_ID)
+    robot.enable_vision()
+
+    robot.enable_lidar()
+    robot.set_lidar_mount(
+        x_mm=LIDAR_MOUNT_X_MM,
+        y_mm=LIDAR_MOUNT_Y_MM,
+        theta_deg=LIDAR_MOUNT_THETA_DEG,
+    )
+    robot.set_lidar_filter(
+        range_min_mm=LIDAR_RANGE_MIN_MM,
+        range_max_mm=LIDAR_RANGE_MAX_MM,
+        fov_deg=LIDAR_FOV_DEG,
+    )
+    robot.start_lidar_world_publisher()
+
+    #robot.set_tracked_tag_id(TAG_ID)
 
 
 def load_pure_pursuit_path(
@@ -125,7 +163,7 @@ def load_pure_pursuit_path(
     path = densify_polyline(control_points, spacing=20.0)
 
     robot._nav_follow_pp_path(
-        lookahead_distance=100.0,
+        lookahead_distance=70.0,
         max_linear_speed=140.0,
         max_angular_speed=1.5,
         goal_tolerance=20.0,
@@ -172,21 +210,15 @@ def check_vision_class(
     return False
 
 
-def _vision_status_callback(msg: Bool) -> None:
-    global current_vision_match
-    current_vision_match = bool(msg.data)
-
-
 def capture_and_encode_face(robot: Robot) -> bool:
     global identified_customer
-    global vision_match_subscription
 
-    print("[VISION] Requesting classification from face_tracker...")
+    print("[VISION] Requesting customer classification from vision_node...")
 
     client = robot._node.create_client(Trigger, "/vision/capture_target")
 
     if not client.wait_for_service(timeout_sec=2.0):
-        print("[VISION] ERROR: face_tracker service is offline. Is it running?")
+        print("[VISION] ERROR: /vision/capture_target service is offline.")
         return False
 
     request = Trigger.Request()
@@ -197,28 +229,16 @@ def capture_and_encode_face(robot: Robot) -> bool:
     result = future.result()
 
     if result is None:
-        print("[VISION] ERROR: face_tracker service returned no result.")
+        print("[VISION] ERROR: /vision/capture_target returned no result.")
         return False
 
-    if result.success:
-        identified_customer = result.message
-        print(f"[VISION] Success! Customer identified as: {identified_customer}")
+    if not result.success:
+        print(f"[VISION] FAILED: {result.message}")
+        return False
 
-        vision_match_subscription = robot._node.create_subscription(
-            Bool,
-            "/vision/match_status",
-            _vision_status_callback,
-            10,
-        )
-
-        return True
-
-    print(f"[VISION] FAILED: {result.message}")
-    return False
-
-
-def verify_live_face() -> bool:
-    return current_vision_match
+    identified_customer = result.message
+    print(f"[VISION] Customer identified as: {identified_customer}")
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +249,9 @@ def run(robot: Robot) -> None:
     configure_robot(robot)
 
     state = "INIT"
+
+    post_delivery_roll_started_at = None
+    stop_sign_scan_started_at = None
 
     period = 1.0 / float(DEFAULT_FSM_HZ)
     next_tick = time.monotonic()
@@ -255,12 +278,27 @@ def run(robot: Robot) -> None:
             robot._draw_lidar_obstacles()
 
             if robot.was_button_pressed(Button.BTN_1):
-                print("[FSM] BTN_1 pressed. Transitioning to WAITING_FOR_GREEN.")
+                print("[FSM] BTN_1 pressed. Turning left 25 degrees to view traffic light.")
+                robot.turn_by(
+                    delta_deg=TRAFFIC_LIGHT_LOOK_DEG,
+                    blocking=True,
+                    tolerance_deg=TURN_TOLERANCE_DEG,
+                )
+
+                print("[FSM] Looking at traffic light. Waiting for green.")
                 state = "WAITING_FOR_GREEN"
 
         elif state == "WAITING_FOR_GREEN":
             if check_vision_class(robot, "traffic light", "color", "green"):
-                print("[FSM] Green light detected. Starting kitchen path 1.")
+                print("[FSM] Green light detected. Turning back straight.")
+
+                robot.turn_by(
+                    delta_deg=-TRAFFIC_LIGHT_LOOK_DEG,
+                    blocking=True,
+                    tolerance_deg=TURN_TOLERANCE_DEG,
+                )
+
+                print("[FSM] Starting kitchen path 1.")
                 load_pure_pursuit_path(robot, KITCHEN_PATH_1)
                 state = "NAV_KITCHEN_1"
 
@@ -304,110 +342,114 @@ def run(robot: Robot) -> None:
                 state = "NAV_TO_CUSTOMER_SCAN"
 
         # -------------------------------------------------------------------
-        # Customer Scan / Target Capture
+        # Customer Scan / Route Selection
         # -------------------------------------------------------------------
 
         elif state == "NAV_TO_CUSTOMER_SCAN":
             if robot._nav_follow_pp_path_loop() != "MOVING":
-                print("[FSM] Scan station reached. Attempting biometric capture.")
+                print("[FSM] Scan station reached. Attempting facial recognition.")
                 state = "MEMORIZING_TARGET"
 
         elif state == "MEMORIZING_TARGET":
             robot.set_led(LED.BLUE, 255)
 
             if capture_and_encode_face(robot):
-                print(f"[FSM] Profile locked: {identified_customer}. Loading Customer 1 path.")
                 robot.set_led(LED.BLUE, 0)
 
-                load_pure_pursuit_path(robot, CUST_1_PATH_CTRL)
-                state = "NAV_TO_DROPOFF"
+                if identified_customer == "girl.jpg":
+                    print("[FSM] Girl identified. Loading path to Delivery Spot 1.")
+                    load_pure_pursuit_path(robot, CUST_1_PATH_CTRL)
+                    state = "NAV_TO_DELIVERY_SPOT_1"
+
+                elif identified_customer == "guy.jpg":
+                    print("[FSM] Guy identified. Loading path to Delivery Spot 2.")
+                    load_pure_pursuit_path(robot, CUST_2_PATH_CTRL)
+                    state = "NAV_TO_DELIVERY_SPOT_2"
+
+                else:
+                    print(f"[FSM] Unknown customer label: {identified_customer}. Retrying scan.")
+                    time.sleep(0.5)
+
             else:
-                print("[FSM] Failed to capture target. Retrying.")
+                print("[FSM] Failed to identify customer. Retrying scan.")
                 time.sleep(0.5)
 
         # -------------------------------------------------------------------
-        # Customer 1 Verification
+        # Delivery Spot Navigation
         # -------------------------------------------------------------------
 
-        elif state == "NAV_TO_DROPOFF":
+        elif state == "NAV_TO_DELIVERY_SPOT_1":
             if robot._nav_follow_pp_path_loop() != "MOVING":
-                print("[FSM] Reached Customer 1 drop-off zone. Verifying biometric match.")
-                state = "VERIFY_CUST_1"
+                print("[FSM] Reached Delivery Spot 1. Delivering to girl.")
+                state = "DELIVERING_SPOT_1"
 
-        elif state == "VERIFY_CUST_1":
-            if verify_live_face():
-                print("[VISION] MATCH. Target is Customer 1.")
-                robot.set_led(LED.GREEN, 255)
-                robot.set_led(LED.RED, 0)
-
-                state = "DELIVERING_CUST_1"
-            else:
-                print("[VISION] NO MATCH. Moving to Customer 2.")
-                robot.set_led(LED.RED, 255)
-                robot.set_led(LED.GREEN, 0)
-
-                state = "LOAD_CUST_2_PATH"
-
-        # -------------------------------------------------------------------
-        # Customer 2 Verification
-        # -------------------------------------------------------------------
-
-        elif state == "LOAD_CUST_2_PATH":
-            print("[FSM] Loading path to Customer 2.")
-            load_pure_pursuit_path(robot, CUST_2_PATH_CTRL)
-            state = "NAV_TO_CUST_2"
-
-        elif state == "NAV_TO_CUST_2":
+        elif state == "NAV_TO_DELIVERY_SPOT_2":
             if robot._nav_follow_pp_path_loop() != "MOVING":
-                print("[FSM] Reached Customer 2 drop-off zone. Verifying biometric match.")
-                state = "VERIFY_CUST_2"
-
-        elif state == "VERIFY_CUST_2":
-            if verify_live_face():
-                print("[VISION] MATCH. Target is Customer 2.")
-                robot.set_led(LED.GREEN, 255)
-                robot.set_led(LED.RED, 0)
-
-                state = "DELIVERING_CUST_2"
-            else:
-                print("[FSM] FATAL ERROR: Neither customer matched.")
-                robot.shutdown()
-                state = "IDLE"
+                print("[FSM] Reached Delivery Spot 2. Delivering to guy.")
+                state = "DELIVERING_SPOT_2"
 
         # -------------------------------------------------------------------
         # Delivery / Handoff
         # -------------------------------------------------------------------
 
-        elif state == "DELIVERING_CUST_1":
-            print("[FSM] Initiating Customer 1 handoff.")
+        elif state == "DELIVERING_SPOT_1":
+            print("[FSM] Initiating Delivery Spot 1 handoff.")
             burger.deliver_full_stack(robot)
 
-            print("[FSM] Delivered to Customer 1. Loading stop path 1.")
+            print("[FSM] Delivered to Spot 1. Loading stop path 1")
             load_pure_pursuit_path(robot, STOP_PATH_1)
-            state = "DRIVING_TO_STOP"
+            state = "DRIVING_TO_STOP_ALIGNMENT"
 
-        elif state == "DELIVERING_CUST_2":
-            print("[FSM] Initiating Customer 2 handoff.")
+        elif state == "DRIVING_TO_STOP_ALIGNMENT":
+            nav_status = robot._nav_follow_pp_path_loop()
+
+            if nav_status != "MOVING":
+                print("[FSM] STOP_PATH_1 complete. Starting post-delivery roll.")
+                robot.stop()
+                post_delivery_roll_started_at = None
+                state = "POST_DELIVERY_ROLL"
+
+        elif state == "DELIVERING_SPOT_2":
+            print("[FSM] Initiating Delivery Spot 2 handoff.")
             burger.deliver_full_stack(robot)
 
-            print("[FSM] Delivered to Customer 2. Loading stop path 2.")
-            load_pure_pursuit_path(robot, STOP_PATH_2)
-            state = "DRIVING_TO_STOP"
+            print("[FSM] Delivered to Spot 2. Starting post-delivery roll.")
+            post_delivery_roll_started_at = None
+            state = "POST_DELIVERY_ROLL"
 
         # -------------------------------------------------------------------
         # End Mission
         # -------------------------------------------------------------------
 
-        elif state == "DRIVING_TO_STOP":
-            nav_status = robot._nav_follow_pp_path_loop()
+        elif state == "POST_DELIVERY_ROLL":
+            if post_delivery_roll_started_at is None:
+                post_delivery_roll_started_at = time.monotonic()
+                robot.set_velocity(100.0, 0.0)
 
+            if time.monotonic() - post_delivery_roll_started_at >= POST_DELIVERY_ROLL_SEC:
+                robot.stop()
+
+                print("[FSM] Post-delivery roll complete. Turning right 25 degrees to look for stop sign.")
+                robot.turn_by(
+                    delta_deg=STOP_SIGN_LOOK_RIGHT_DEG,
+                    blocking=True,
+                    tolerance_deg=TURN_TOLERANCE_DEG,
+                )
+
+                stop_sign_scan_started_at = time.monotonic()
+                state = "LOOK_FOR_STOP_SIGN"
+
+        elif state == "LOOK_FOR_STOP_SIGN":
             if check_vision_class(robot, "stop sign"):
                 print("[FSM] Stop sign detected. Halting platform and returning to IDLE.")
                 robot.shutdown()
                 state = "IDLE"
 
-            elif nav_status != "MOVING":
-                print("[FSM] Reached end of stop path without seeing stop sign. Halting.")
+            elif (
+                stop_sign_scan_started_at is not None
+                and time.monotonic() - stop_sign_scan_started_at >= STOP_SIGN_SCAN_TIMEOUT_SEC
+            ):
+                print("[FSM] Stop-sign scan timeout. Halting platform and returning to IDLE.")
                 robot.shutdown()
                 state = "IDLE"
 
@@ -429,8 +471,6 @@ def run(robot: Robot) -> None:
             robot.shutdown()
             state = "IDLE"
 
-        # Allow ROS callbacks to update vision match status.
-        #rclpy.spin_once(robot._node, timeout_sec=0.0)
 
         # -------------------------------------------------------------------
         # FSM Refresh Rate Control

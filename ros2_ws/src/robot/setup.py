@@ -22,7 +22,6 @@ setup(
         'console_scripts': [
             'robot = robot.robot_node:main',
             'main = robot.robot_node:main',
-            'face_tracker = robot.face_tracker:main',
             'test_stepper_motor = robot.test_stepper_motor:main',
             'test_gripper_close = robot.test_gripper_close:main',
             'test_gripper_open = robot.test_gripper_open:main',
