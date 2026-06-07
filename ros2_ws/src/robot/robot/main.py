@@ -298,6 +298,10 @@ def run(robot: Robot) -> None:
                     tolerance_deg=TURN_TOLERANCE_DEG,
                 )
 
+                print("[FSM] Raising elevator for shelf clearance before navigating to bottom bun.")
+                burger.go_to_height_1(robot)
+                burger.clearance_height_up(robot)
+                
                 print("[FSM] Starting kitchen path 1.")
                 load_pure_pursuit_path(robot, KITCHEN_PATH_1)
                 state = "NAV_KITCHEN_1"
