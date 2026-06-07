@@ -237,7 +237,7 @@ def go_to_height_6(robot: Robot) -> None:
 
 
 def go_to_height_7(robot: Robot) -> None:
-   print("[TEST] Going down to Height 6")
+   print("[TEST] Going down to Height 7")
    move_stepper(robot, HEIGHT_7_STEPS, "HEIGHT 7 DOWN")
 
 
@@ -255,8 +255,8 @@ def short_lift_up(robot: Robot) -> None:
 
 
 def short_lift_down(robot: Robot) -> None:
-   print("[TEST] Short Lift Up")
-   move_stepper(robot, SHORTLIFT_HEIGHT_STEPS, "SHORT LIFT UP")
+   print("[TEST] Short Lift Down")
+   move_stepper(robot, SHORTLIFT_HEIGHT_STEPS, "SHORT LIFT DOWN")
 
 def clearance_height_up(robot: Robot) -> None:
    print("[TEST] CLEAR HEIGHT")

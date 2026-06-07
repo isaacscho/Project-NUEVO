@@ -20,14 +20,14 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'robot = robot.main:main',
-            'main = robot.main:main',
+            'robot = robot.robot_node:main',
+            'main = robot.robot_node:main',
             'face_tracker = robot.face_tracker:main',
             'test_stepper_motor = robot.test_stepper_motor:main',
             'test_gripper_close = robot.test_gripper_close:main',
             'test_gripper_open = robot.test_gripper_open:main',
             'test_inward_belt = robot.test_inward_belt:main',
-            'test_outward_belt = robot.test_outward_belt:main'
+            'test_outward_belt = robot.test_outward_belt:main',
         ],
     },
 )

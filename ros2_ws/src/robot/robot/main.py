@@ -90,7 +90,19 @@ vision_match_subscription = None
 # Helpers: Hardware & Path Loading
 # ---------------------------------------------------------------------------
 
+def start_robot(robot: Robot) -> None:
+    current = robot.get_state()
+    if current in (FirmwareState.ESTOP, FirmwareState.ERROR):
+        robot.reset_estop()
+    robot.set_state(FirmwareState.RUNNING)
+
+
 def configure_robot(robot: Robot) -> None:
+    robot.enable_vision()
+
+    robot.enable_lidar()
+    robot.start_lidar_world_publisher()
+
     robot.set_unit(POSITION_UNIT)
 
     robot.set_odometry_parameters(
@@ -227,7 +239,7 @@ def run(robot: Robot) -> None:
         # -------------------------------------------------------------------
 
         if state == "INIT":
-            robot.set_state(FirmwareState.RUNNING)
+            start_robot(robot)
 
             burger.setup_elevation_stepper(robot)
 
@@ -242,7 +254,7 @@ def run(robot: Robot) -> None:
             robot.set_led(LED.ORANGE, 255)
             robot._draw_lidar_obstacles()
 
-            if robot.get_button(Button.BTN_1):
+            if robot.was_button_pressed(Button.BTN_1):
                 print("[FSM] BTN_1 pressed. Transitioning to WAITING_FOR_GREEN.")
                 state = "WAITING_FOR_GREEN"
 
@@ -412,13 +424,13 @@ def run(robot: Robot) -> None:
         # Emergency Stop Interrupt
         # -------------------------------------------------------------------
 
-        if robot.get_button(Button.BTN_2):
+        if robot.was_button_pressed(Button.BTN_2):
             print("[FSM] BTN_2 pressed. Emergency stopping robot.")
             robot.shutdown()
             state = "IDLE"
 
         # Allow ROS callbacks to update vision match status.
-        rclpy.spin_once(robot._node, timeout_sec=0.0)
+        #rclpy.spin_once(robot._node, timeout_sec=0.0)
 
         # -------------------------------------------------------------------
         # FSM Refresh Rate Control
@@ -431,23 +443,3 @@ def run(robot: Robot) -> None:
             time.sleep(sleep_s)
         else:
             next_tick = time.monotonic()
-
-
-def main(args=None):
-    rclpy.init(args=args)
-
-    node = rclpy.create_node("robot")
-    robot = Robot(node)
-
-    try:
-        run(robot)
-    except KeyboardInterrupt:
-        print("[FSM] Keyboard interrupt. Shutting down robot.")
-        robot.shutdown()
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
-
-
-if __name__ == "__main__":
-    main()

@@ -23,6 +23,11 @@ from vision.stop_sign import classify_stop_sign_visibility
 from vision.timing_utils import FixedRateScheduler
 from vision.traffic_light import classify_traffic_light_color
 
+from std_msgs.msg import Bool
+from std_srvs.srv import Trigger
+
+from vision.face_tracker import FaceTracker
+
 
 # User-facing COCO class filter.
 # Add standard COCO names here, matching data/yolo26n_ncnn_imgsz_416/metadata.yaml.
@@ -58,8 +63,28 @@ def classify_person_face_lighting(person_crop) -> tuple[str, float]:
 
 
 class VisionNode(Node):
+
+    def _capture_target_callback(self, request, response):
+        success, message = self._face_tracker.capture_target(self._latest_frame)
+        response.success = bool(success)
+        response.message = str(message)
+        if success:
+            self.get_logger().info(f"Face target locked: {message}")
+        else:
+            self.get_logger().warn(f"Face target capture failed: {message}")
+        return response
+
     def __init__(self) -> None:
         super().__init__("vision_node")
+
+        self._latest_frame = None
+        self._face_tracker = FaceTracker(logger=self.get_logger())
+        self._match_pub = self.create_publisher(Bool, "/vision/match_status", 10)
+        self._capture_srv = self.create_service(
+            Trigger,
+            "/vision/capture_target",
+            self._capture_target_callback,
+        )
 
         self._share_data_dir = Path(get_package_share_directory("vision")) / "data"
         self._source_data_dir = Path("/ros2_ws/src/vision/data")
@@ -202,6 +227,12 @@ class VisionNode(Node):
                 self._camera.handle_read_failure()
                 scheduler.reset()
                 continue
+
+            self._latest_frame = frame.copy()
+
+            match_msg = Bool()
+            match_msg.data = self._face_tracker.is_target_visible(frame)
+            self._match_pub.publish(match_msg)
 
             capture_stamp = self.get_clock().now().to_msg()
             inference_start = time.monotonic()
