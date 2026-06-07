@@ -237,7 +237,7 @@ def TopBun_sequence(robot: Robot) -> None:
 
 def deliver_full_stack(robot: Robot) -> None:
     print("[TEST] Starting Delivery Sequence")
-    go_to_height_2
+    go_to_height_2(robot)
     # Grip completed burger
     close_gripper(robot)
 
