@@ -15,12 +15,9 @@ from robot.hardware_map import (
     DEFAULT_FSM_HZ,
     LED,
     Motor,
-    LIDAR_FOV_DEG,
     LIDAR_MOUNT_THETA_DEG,
     LIDAR_MOUNT_X_MM,
     LIDAR_MOUNT_Y_MM,
-    LIDAR_RANGE_MAX_MM,
-    LIDAR_RANGE_MIN_MM,
 )
 
 
@@ -28,19 +25,17 @@ from robot.hardware_map import (
 # Configuration & Hardware Tuning
 # ---------------------------------------------------------------------------
 
-#TAG_ID = 22
-
 POSITION_UNIT = Unit.MM
 
 WHEEL_DIAMETER = 76.2
-WHEEL_BASE = 355.6
+WHEEL_BASE = 370.0
 INITIAL_THETA_DEG = 90.0
 
 LEFT_WHEEL_MOTOR = Motor.DC_M1
-LEFT_WHEEL_DIR_INVERTED = True
+LEFT_WHEEL_DIR_INVERTED = False
 
 RIGHT_WHEEL_MOTOR = Motor.DC_M2
-RIGHT_WHEEL_DIR_INVERTED = False
+RIGHT_WHEEL_DIR_INVERTED = True
 
 VISION_STALE_SEC = 3.0
 MIN_DETECTION_CONFIDENCE = 0.50
@@ -52,59 +47,94 @@ MIN_DETECTION_CONFIDENCE = 0.50
 
 KITCHEN_PATH_1 = [
     (0.0, 0.0),
-    (-180.0, 300.0),
-    (-180.0, 372.5),
+    (0.0, 372.5),
 ]
 
 KITCHEN_PATH_2 = [
-    (-180.0, 372.5),
-    (-180.0, 512.2),
+    (0.0, 372.5),
+    (0.0, 512.2),
 ]
 
 KITCHEN_PATH_3 = [
-    (-180.0, 512.2),
-    (-180.0, 651.9),
+    (0.0, 512.2),
+    (0.0, 651.9),
 ]
 
-SCAN_PATH_CTRL = [
-    (-180.0, 651.9),
+# Normal navigation to the LiDAR obstacle section.
+# Obstacle avoidance OFF here.
+SCAN_PATH_TO_LIDAR_START = [
+    (0.0, 651.9),
     (0.0, 760.0),
     (0.0, 3073.4),
     (558.8, 3073.4),
     (558.8, 279.4),
     (1397.0, 279.4),
+]
+
+# Only this section uses obstacle avoidance.
+LIDAR_OBSTACLE_PATH = [
+    (1397.0, 279.4),
+    (1397.0, 3073.4),
+]
+
+# Continue to customer scan station with obstacle avoidance OFF.
+SCAN_PATH_AFTER_LIDAR = [
     (1397.0, 3073.4),
     (1676.4, 3073.4),
 ]
 
-CUST_1_PATH_CTRL = [
+# Delivery path 1:
+# Stop at prep point, run deliver_full_stack(), then drive to final shelf.
+CUST_1_PREP_PATH_CTRL = [
     (1676.4, 3073.4),
-    (1955.8, 3073.4),
-    (1955.8, 700.0),
-    (1775.8, 630.0),
-    (1775.8, 582.1),
+    (1775.8, 3073.4),
+    (1775.8, 700.0),
 ]
 
-CUST_2_PATH_CTRL = [
+CUST_1_FINAL_PATH_CTRL = [
+    (1775.8, 700.0),
+    (1955.8, 630.0),
+    (1955.8, 582.1),
+]
+
+# Delivery path 2:
+# Stop at prep point, run deliver_full_stack(), then drive to final shelf.
+CUST_2_PREP_PATH_CTRL = [
     (1676.4, 3073.4),
-    (1955.8, 3073.4),
-    (1955.8, 560.0),
-    (1775.8, 500.0),
-    (1775.8, 442.4),
+    (1775.8, 3073.4),
+    (1775.8, 560.0),
+]
+
+CUST_2_FINAL_PATH_CTRL = [
+    (1775.8, 560.0),
+    (1955.8, 500.0),
+    (1955.8, 442.4),
 ]
 
 STOP_PATH_1 = [
-    (1775.8, 582.1),
+    (1955.8, 582.1),
     (1955.8, 530.0),
     (1955.8, 442.4),
 ]
 
+FINAL_EXIT_PATH = [
+    (1955.8, 442.4),
+    (1955.8, 0.0),
+]
+
+
+# ---------------------------------------------------------------------------
+# Mission Constants
+# ---------------------------------------------------------------------------
+
 TRAFFIC_LIGHT_LOOK_DEG = 25.0
 TURN_TOLERANCE_DEG = 3.0
 
-POST_DELIVERY_ROLL_SEC = 2.0
+POST_DELIVERY_ROLL_SEC = 3.0
 STOP_SIGN_LOOK_RIGHT_DEG = -25.0
 STOP_SIGN_SCAN_TIMEOUT_SEC = 2.0
+STOP_SIGN_PAUSE_SEC = 3.0
+
 
 # ---------------------------------------------------------------------------
 # Global Runtime Variables
@@ -119,13 +149,14 @@ identified_customer = None
 
 def start_robot(robot: Robot) -> None:
     current = robot.get_state()
+
     if current in (FirmwareState.ESTOP, FirmwareState.ERROR):
         robot.reset_estop()
+
     robot.set_state(FirmwareState.RUNNING)
 
 
 def configure_robot(robot: Robot) -> None:
-
     robot.set_unit(POSITION_UNIT)
 
     robot.set_odometry_parameters(
@@ -146,35 +177,38 @@ def configure_robot(robot: Robot) -> None:
         y_mm=LIDAR_MOUNT_Y_MM,
         theta_deg=LIDAR_MOUNT_THETA_DEG,
     )
-    robot.set_lidar_filter(
-        range_min_mm=LIDAR_RANGE_MIN_MM,
-        range_max_mm=LIDAR_RANGE_MAX_MM,
-        fov_deg=LIDAR_FOV_DEG,
-    )
-    robot.start_lidar_world_publisher()
 
-    #robot.set_tracked_tag_id(TAG_ID)
+    # Front-focused LiDAR filter so it does not constantly avoid side walls.
+    robot.set_lidar_filter(
+        range_min_mm=90.0,
+        range_max_mm=6000.0,
+        fov_deg=(-90.0, 45.0),
+    )
+
+    robot.start_lidar_world_publisher()
 
 
 def load_pure_pursuit_path(
     robot: Robot,
     control_points: list[tuple[float, float]],
+    *,
+    obstacle_avoidance: bool = False,
 ) -> None:
     path = densify_polyline(control_points, spacing=20.0)
 
     robot._nav_follow_pp_path(
-        lookahead_distance=70.0,
-        max_linear_speed=140.0,
-        max_angular_speed=1.5,
+        lookahead_distance=40.0,
+        max_linear_speed=55.0,
+        max_angular_speed=1.2,
         goal_tolerance=20.0,
-        obstacles_range=450.0,
-        view_angle=math.radians(70.0),
-        safe_dist=250.0,
+        obstacles_range=350.0,
+        view_angle=math.radians(90.0),
+        safe_dist=120,
         avoidance_delay=150,
         alpha_Ld=0.7,
         offset=270.0,
         lane_width=500.0,
-        obstacle_avoidance=True,
+        obstacle_avoidance=obstacle_avoidance,
         x_L=300.0,
     )
 
@@ -224,7 +258,13 @@ def capture_and_encode_face(robot: Robot) -> bool:
     request = Trigger.Request()
     future = client.call_async(request)
 
-    rclpy.spin_until_future_complete(robot._node, future)
+    deadline = time.monotonic() + 3.0
+    while not future.done() and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+    if not future.done():
+        print("[VISION] ERROR: /vision/capture_target timed out.")
+        return False
 
     result = future.result()
 
@@ -275,7 +315,9 @@ def run(robot: Robot) -> None:
         elif state == "IDLE":
             robot.set_led(LED.GREEN, 0)
             robot.set_led(LED.ORANGE, 255)
-            robot._draw_lidar_obstacles()
+
+            # Do not constantly draw/avoid LiDAR obstacles in idle.
+            # robot._draw_lidar_obstacles()
 
             if robot.was_button_pressed(Button.BTN_1):
                 print("[FSM] BTN_1 pressed. Turning left 25 degrees to view traffic light.")
@@ -301,9 +343,9 @@ def run(robot: Robot) -> None:
                 print("[FSM] Raising elevator for shelf clearance before navigating to bottom bun.")
                 burger.go_to_height_1(robot)
                 burger.clearance_height_up(robot)
-                
+
                 print("[FSM] Starting kitchen path 1.")
-                load_pure_pursuit_path(robot, KITCHEN_PATH_1)
+                load_pure_pursuit_path(robot, KITCHEN_PATH_1, obstacle_avoidance=False)
                 state = "NAV_KITCHEN_1"
 
         # -------------------------------------------------------------------
@@ -313,10 +355,11 @@ def run(robot: Robot) -> None:
         elif state == "NAV_KITCHEN_1":
             if robot._nav_follow_pp_path_loop() != "MOVING":
                 print("[FSM] Arrived at bottom bun station. Running bottom bun sequence.")
+                robot.stop()
                 burger.BottomBun_sequence(robot)
 
                 print("[FSM] Bottom bun sequence complete. Loading kitchen path 2.")
-                load_pure_pursuit_path(robot, KITCHEN_PATH_2)
+                load_pure_pursuit_path(robot, KITCHEN_PATH_2, obstacle_avoidance=False)
                 state = "NAV_KITCHEN_2"
 
         # -------------------------------------------------------------------
@@ -326,10 +369,11 @@ def run(robot: Robot) -> None:
         elif state == "NAV_KITCHEN_2":
             if robot._nav_follow_pp_path_loop() != "MOVING":
                 print("[FSM] Arrived at patty station. Running patty sequence.")
+                robot.stop()
                 burger.Patty_sequence(robot)
 
                 print("[FSM] Patty sequence complete. Loading kitchen path 3.")
-                load_pure_pursuit_path(robot, KITCHEN_PATH_3)
+                load_pure_pursuit_path(robot, KITCHEN_PATH_3, obstacle_avoidance=False)
                 state = "NAV_KITCHEN_3"
 
         # -------------------------------------------------------------------
@@ -339,10 +383,41 @@ def run(robot: Robot) -> None:
         elif state == "NAV_KITCHEN_3":
             if robot._nav_follow_pp_path_loop() != "MOVING":
                 print("[FSM] Arrived at top bun station. Running top bun sequence.")
+                robot.stop()
                 burger.TopBun_sequence(robot)
 
-                print("[FSM] Burger fully assembled. Navigating to customer scan station.")
-                load_pure_pursuit_path(robot, SCAN_PATH_CTRL)
+                print("[FSM] Burger fully assembled. Navigating to LiDAR obstacle section start.")
+                load_pure_pursuit_path(
+                    robot,
+                    SCAN_PATH_TO_LIDAR_START,
+                    obstacle_avoidance=False,
+                )
+                state = "NAV_TO_LIDAR_START"
+
+        # -------------------------------------------------------------------
+        # LiDAR Obstacle Section
+        # -------------------------------------------------------------------
+
+        elif state == "NAV_TO_LIDAR_START":
+            if robot._nav_follow_pp_path_loop() != "MOVING":
+                print("[FSM] Reached LiDAR obstacle section. Turning obstacle avoidance ON.")
+
+                load_pure_pursuit_path(
+                    robot,
+                    LIDAR_OBSTACLE_PATH,
+                    obstacle_avoidance=True,
+                )
+                state = "NAV_LIDAR_OBSTACLE_SECTION"
+
+        elif state == "NAV_LIDAR_OBSTACLE_SECTION":
+            if robot._nav_follow_pp_path_loop() != "MOVING":
+                print("[FSM] LiDAR obstacle section complete. Turning obstacle avoidance OFF.")
+
+                load_pure_pursuit_path(
+                    robot,
+                    SCAN_PATH_AFTER_LIDAR,
+                    obstacle_avoidance=False,
+                )
                 state = "NAV_TO_CUSTOMER_SCAN"
 
         # -------------------------------------------------------------------
@@ -352,6 +427,7 @@ def run(robot: Robot) -> None:
         elif state == "NAV_TO_CUSTOMER_SCAN":
             if robot._nav_follow_pp_path_loop() != "MOVING":
                 print("[FSM] Scan station reached. Attempting facial recognition.")
+                robot.stop()
                 state = "MEMORIZING_TARGET"
 
         elif state == "MEMORIZING_TARGET":
@@ -361,14 +437,22 @@ def run(robot: Robot) -> None:
                 robot.set_led(LED.BLUE, 0)
 
                 if identified_customer == "girl.jpg":
-                    print("[FSM] Girl identified. Loading path to Delivery Spot 1.")
-                    load_pure_pursuit_path(robot, CUST_1_PATH_CTRL)
-                    state = "NAV_TO_DELIVERY_SPOT_1"
+                    print("[FSM] Girl identified. Loading path to Delivery Prep Point 1.")
+                    load_pure_pursuit_path(
+                        robot,
+                        CUST_1_PREP_PATH_CTRL,
+                        obstacle_avoidance=False,
+                    )
+                    state = "NAV_TO_DELIVERY_PREP_1"
 
                 elif identified_customer == "guy.jpg":
-                    print("[FSM] Guy identified. Loading path to Delivery Spot 2.")
-                    load_pure_pursuit_path(robot, CUST_2_PATH_CTRL)
-                    state = "NAV_TO_DELIVERY_SPOT_2"
+                    print("[FSM] Guy identified. Loading path to Delivery Prep Point 2.")
+                    load_pure_pursuit_path(
+                        robot,
+                        CUST_2_PREP_PATH_CTRL,
+                        obstacle_avoidance=False,
+                    )
+                    state = "NAV_TO_DELIVERY_PREP_2"
 
                 else:
                     print(f"[FSM] Unknown customer label: {identified_customer}. Retrying scan.")
@@ -379,50 +463,81 @@ def run(robot: Robot) -> None:
                 time.sleep(0.5)
 
         # -------------------------------------------------------------------
-        # Delivery Spot Navigation
+        # Delivery Prep Navigation
+        # -------------------------------------------------------------------
+
+        elif state == "NAV_TO_DELIVERY_PREP_1":
+            if robot._nav_follow_pp_path_loop() != "MOVING":
+                print("[FSM] Reached Delivery Prep Point 1 at (1775.8, 700.0).")
+                print("[FSM] Preparing burger for Delivery Spot 1.")
+
+                robot.stop()
+                burger.deliver_full_stack(robot)
+
+                print("[FSM] Delivery prep complete. Driving to Delivery Spot 1 shelf.")
+                load_pure_pursuit_path(
+                    robot,
+                    CUST_1_FINAL_PATH_CTRL,
+                    obstacle_avoidance=False,
+                )
+                state = "NAV_TO_DELIVERY_SPOT_1"
+
+        elif state == "NAV_TO_DELIVERY_PREP_2":
+            if robot._nav_follow_pp_path_loop() != "MOVING":
+                print("[FSM] Reached Delivery Prep Point 2 at (1775.8, 560.0).")
+                print("[FSM] Preparing burger for Delivery Spot 2.")
+
+                robot.stop()
+                burger.deliver_full_stack(robot)
+
+                print("[FSM] Delivery prep complete. Driving to Delivery Spot 2 shelf.")
+                load_pure_pursuit_path(
+                    robot,
+                    CUST_2_FINAL_PATH_CTRL,
+                    obstacle_avoidance=False,
+                )
+                state = "NAV_TO_DELIVERY_SPOT_2"
+
+        # -------------------------------------------------------------------
+        # Final Delivery Navigation / Handoff
         # -------------------------------------------------------------------
 
         elif state == "NAV_TO_DELIVERY_SPOT_1":
             if robot._nav_follow_pp_path_loop() != "MOVING":
-                print("[FSM] Reached Delivery Spot 1. Delivering to girl.")
-                state = "DELIVERING_SPOT_1"
+                print("[FSM] Reached Delivery Spot 1 shelf. Delivering burger to girl.")
+
+                robot.stop()
+                burger.deliver_burger_final(robot)
+
+                print("[FSM] Delivered to Spot 1. Loading stop path 1.")
+                load_pure_pursuit_path(
+                    robot,
+                    STOP_PATH_1,
+                    obstacle_avoidance=False,
+                )
+                state = "DRIVING_TO_STOP_ALIGNMENT"
 
         elif state == "NAV_TO_DELIVERY_SPOT_2":
             if robot._nav_follow_pp_path_loop() != "MOVING":
-                print("[FSM] Reached Delivery Spot 2. Delivering to guy.")
-                state = "DELIVERING_SPOT_2"
+                print("[FSM] Reached Delivery Spot 2 shelf. Delivering burger to guy.")
 
-        # -------------------------------------------------------------------
-        # Delivery / Handoff
-        # -------------------------------------------------------------------
+                robot.stop()
+                burger.deliver_burger_final(robot)
 
-        elif state == "DELIVERING_SPOT_1":
-            print("[FSM] Initiating Delivery Spot 1 handoff.")
-            burger.deliver_full_stack(robot)
-
-            print("[FSM] Delivered to Spot 1. Loading stop path 1")
-            load_pure_pursuit_path(robot, STOP_PATH_1)
-            state = "DRIVING_TO_STOP_ALIGNMENT"
+                print("[FSM] Delivered to Spot 2. Starting post-delivery roll.")
+                post_delivery_roll_started_at = None
+                state = "POST_DELIVERY_ROLL"
 
         elif state == "DRIVING_TO_STOP_ALIGNMENT":
-            nav_status = robot._nav_follow_pp_path_loop()
-
-            if nav_status != "MOVING":
+            if robot._nav_follow_pp_path_loop() != "MOVING":
                 print("[FSM] STOP_PATH_1 complete. Starting post-delivery roll.")
+
                 robot.stop()
                 post_delivery_roll_started_at = None
                 state = "POST_DELIVERY_ROLL"
 
-        elif state == "DELIVERING_SPOT_2":
-            print("[FSM] Initiating Delivery Spot 2 handoff.")
-            burger.deliver_full_stack(robot)
-
-            print("[FSM] Delivered to Spot 2. Starting post-delivery roll.")
-            post_delivery_roll_started_at = None
-            state = "POST_DELIVERY_ROLL"
-
         # -------------------------------------------------------------------
-        # End Mission
+        # End Mission: Roll, Stop Sign, Final Exit
         # -------------------------------------------------------------------
 
         elif state == "POST_DELIVERY_ROLL":
@@ -444,16 +559,39 @@ def run(robot: Robot) -> None:
                 state = "LOOK_FOR_STOP_SIGN"
 
         elif state == "LOOK_FOR_STOP_SIGN":
-            if check_vision_class(robot, "stop sign"):
-                print("[FSM] Stop sign detected. Halting platform and returning to IDLE.")
-                robot.shutdown()
-                state = "IDLE"
-
-            elif (
+            stop_sign_seen = check_vision_class(robot, "stop sign")
+            scan_timed_out = (
                 stop_sign_scan_started_at is not None
                 and time.monotonic() - stop_sign_scan_started_at >= STOP_SIGN_SCAN_TIMEOUT_SEC
-            ):
-                print("[FSM] Stop-sign scan timeout. Halting platform and returning to IDLE.")
+            )
+
+            if stop_sign_seen or scan_timed_out:
+                if stop_sign_seen:
+                    print("[FSM] Stop sign detected. Stopping for 3 seconds.")
+                else:
+                    print("[FSM] Stop-sign scan timeout. Stopping for 3 seconds anyway.")
+
+                robot.stop()
+                time.sleep(STOP_SIGN_PAUSE_SEC)
+
+                print("[FSM] Turning back forward.")
+                robot.turn_by(
+                    delta_deg=-STOP_SIGN_LOOK_RIGHT_DEG,
+                    blocking=True,
+                    tolerance_deg=TURN_TOLERANCE_DEG,
+                )
+
+                print("[FSM] Driving to final exit point (1955.8, 0.0).")
+                load_pure_pursuit_path(
+                    robot,
+                    FINAL_EXIT_PATH,
+                    obstacle_avoidance=False,
+                )
+                state = "NAV_TO_FINAL_EXIT"
+
+        elif state == "NAV_TO_FINAL_EXIT":
+            if robot._nav_follow_pp_path_loop() != "MOVING":
+                print("[FSM] Final exit point reached. Mission complete.")
                 robot.shutdown()
                 state = "IDLE"
 
@@ -474,7 +612,6 @@ def run(robot: Robot) -> None:
             print("[FSM] BTN_2 pressed. Emergency stopping robot.")
             robot.shutdown()
             state = "IDLE"
-
 
         # -------------------------------------------------------------------
         # FSM Refresh Rate Control
