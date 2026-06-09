@@ -125,7 +125,7 @@
 #define WHEEL_DIAMETER_MM   76.2f
 
 // Centre-to-centre track width between the two drive wheels (mm)
-#define WHEEL_BASE_MM       355.6f
+#define WHEEL_BASE_MM       345f
 
 // Initial theta (degree)
 #define INITIAL_THETA       90.0f
@@ -134,11 +134,11 @@
 // Positive encoder ticks must mean "wheel moving forward".
 // If the count direction is wrong, set ENCODER_N_DIR_INVERTED in config.h.
 #define ODOM_LEFT_MOTOR     0 // MOTOR_1
-#define ODOM_LEFT_MOTOR_DIR_INVERTED 1
+#define ODOM_LEFT_MOTOR_DIR_INVERTED 0
 
 // DC motor index that drives the right drive wheel (0-based, 0–3)
 #define ODOM_RIGHT_MOTOR    1 // MOTOR_2
-#define ODOM_RIGHT_MOTOR_DIR_INVERTED 0
+#define ODOM_RIGHT_MOTOR_DIR_INVERTED 1
 
 // ============================================================================
 // TIMING CONFIGURATION
@@ -254,7 +254,7 @@ extern Print &DEBUG_SERIAL;
 // ============================================================================
 
 // IMU (ICM-20948 via SparkFun library + Fusion AHRS)
-#define IMU_ENABLED             0
+#define IMU_ENABLED             1
 // AD0_VAL: 0 = I2C addr 0x68 (AD0 pin LOW), 1 = I2C addr 0x69 (AD0 pin HIGH)
 #define IMU_AD0_VAL             1       // SparkFun breakout default: AD0 high = 0x69
 // Explicit IMU full-scale settings. Keep these aligned with FusionWrapper and

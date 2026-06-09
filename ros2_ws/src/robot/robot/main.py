@@ -28,7 +28,7 @@ from robot.hardware_map import (
 POSITION_UNIT = Unit.MM
 
 WHEEL_DIAMETER = 76.2
-WHEEL_BASE = 370.0
+WHEEL_BASE = 345.0
 INITIAL_THETA_DEG = 90.0
 
 LEFT_WHEEL_MOTOR = Motor.DC_M1
@@ -127,12 +127,12 @@ FINAL_EXIT_PATH = [
 # Mission Constants
 # ---------------------------------------------------------------------------
 
-TRAFFIC_LIGHT_LOOK_DEG = 25.0
+TRAFFIC_LIGHT_LOOK_DEG = 15.0
 TURN_TOLERANCE_DEG = 3.0
 
 POST_DELIVERY_ROLL_SEC = 3.0
 STOP_SIGN_LOOK_RIGHT_DEG = -25.0
-STOP_SIGN_SCAN_TIMEOUT_SEC = 2.0
+STOP_SIGN_SCAN_TIMEOUT_SEC = 3.0
 STOP_SIGN_PAUSE_SEC = 3.0
 
 
@@ -180,9 +180,9 @@ def configure_robot(robot: Robot) -> None:
 
     # Front-focused LiDAR filter so it does not constantly avoid side walls.
     robot.set_lidar_filter(
-        range_min_mm=90.0,
+        range_min_mm=150.0,
         range_max_mm=6000.0,
-        fov_deg=(-90.0, 45.0),
+        fov_deg=(-45.0, 45.0),
     )
 
     robot.start_lidar_world_publisher()
@@ -198,16 +198,16 @@ def load_pure_pursuit_path(
 
     robot._nav_follow_pp_path(
         lookahead_distance=40.0,
-        max_linear_speed=55.0,
-        max_angular_speed=1.2,
-        goal_tolerance=20.0,
-        obstacles_range=350.0,
+        max_linear_speed=75.0,
+        max_angular_speed=1.4,
+        goal_tolerance=30.0,
+        obstacles_range=450.0,
         view_angle=math.radians(90.0),
-        safe_dist=120,
-        avoidance_delay=150,
+        safe_dist=180,
+        avoidance_delay=250,
         alpha_Ld=0.7,
-        offset=270.0,
-        lane_width=500.0,
+        offset=320.0,
+        lane_width=600.0,
         obstacle_avoidance=obstacle_avoidance,
         x_L=300.0,
     )
