@@ -11,12 +11,12 @@ from robot.robot import Robot
 
 ELEVATION_STEPPER = 1
 
-SHORTLIFT_HEIGHT_STEPS = 250
+SHORTLIFT_HEIGHT_STEPS = 350
 CLEARANCE_HEIGHT = 525
-CLEARANCE_HEIGHT_DOWN = 550
+CLEARANCE_HEIGHT_DOWN = 525
 
 # picking up bottom bun
-HEIGHT_1_STEPS = 1588
+HEIGHT_1_STEPS = 1463
 
 # lowering bottom bun / assembled burger pickup height
 HEIGHT_2_STEPS = HEIGHT_1_STEPS + CLEARANCE_HEIGHT
@@ -58,9 +58,10 @@ BELT_RIGHT_IN_SPEED = 70
 BELT_LEFT_OUT_SPEED = 70
 BELT_RIGHT_OUT_SPEED = 170
 
-GRIPPER_TIME = 0.9
+GRIPPER_TIME_Bun = 0.925
+GRIPPER_TIME_Patty = 1.1
 BELT_TIME = 6.0
-
+BELT_TIME_Deliv = 4
 
 # =========================
 # SETUP
@@ -159,21 +160,36 @@ def clearance_height_down(robot: Robot) -> None:
 # SERVO FUNCTIONS
 # =========================
 
-def close_gripper(robot: Robot) -> None:
+def close_gripper_Bun(robot: Robot) -> None:
     print("[GRIPPER] Closing")
 
     robot.enable_servo(GRIPPER_SERVO)
     robot.set_servo(GRIPPER_SERVO, GRIPPER_CLOSE_SPEED)
-    time.sleep(GRIPPER_TIME)
+    time.sleep(GRIPPER_TIME_Bun)
     robot.disable_servo(GRIPPER_SERVO)
 
+def close_gripper_Patty(robot: Robot) -> None:
+    print("[GRIPPER] Closing")
 
-def open_gripper(robot: Robot) -> None:
+    robot.enable_servo(GRIPPER_SERVO)
+    robot.set_servo(GRIPPER_SERVO, GRIPPER_CLOSE_SPEED)
+    time.sleep(GRIPPER_TIME_Patty)
+    robot.disable_servo(GRIPPER_SERVO)
+
+def open_gripper_Bun(robot: Robot) -> None:
     print("[GRIPPER] Opening")
 
     robot.enable_servo(GRIPPER_SERVO)
     robot.set_servo(GRIPPER_SERVO, GRIPPER_OPEN_SPEED)
-    time.sleep(GRIPPER_TIME)
+    time.sleep(GRIPPER_TIME_Bun)
+    robot.disable_servo(GRIPPER_SERVO)
+
+def open_gripper_Patty(robot: Robot) -> None:
+    print("[GRIPPER] Opening")
+
+    robot.enable_servo(GRIPPER_SERVO)
+    robot.set_servo(GRIPPER_SERVO, GRIPPER_OPEN_SPEED)
+    time.sleep(GRIPPER_TIME_Patty)
     robot.disable_servo(GRIPPER_SERVO)
 
 
@@ -201,7 +217,7 @@ def belts_outward(robot: Robot) -> None:
     robot.set_servo(BELT_LEFT_SERVO, BELT_LEFT_OUT_SPEED)
     robot.set_servo(BELT_RIGHT_SERVO, BELT_RIGHT_OUT_SPEED)
 
-    time.sleep(BELT_TIME)
+    time.sleep(BELT_TIME_Deliv)
 
     robot.disable_servo(BELT_LEFT_SERVO)
     robot.disable_servo(BELT_RIGHT_SERVO)
@@ -222,13 +238,13 @@ def BottomBun_sequence(robot: Robot) -> None:
     print("[TEST] Starting Bottom Bun Sequence")
 
     clearance_height_down(robot)
-    close_gripper(robot)
+    close_gripper_Bun(robot)
     short_lift_up(robot)
 
     belts_inward(robot)
     time.sleep(2)
 
-    open_gripper(robot)
+    open_gripper_Bun(robot)
     time.sleep(2)
 
     short_lift_down(robot)
@@ -241,13 +257,13 @@ def Patty_sequence(robot: Robot) -> None:
     print("[TEST] Starting Patty Sequence")
 
     clearance_height_down(robot)
-    close_gripper(robot)
+    close_gripper_Patty(robot)
     short_lift_up(robot)
 
     belts_inward(robot)
     time.sleep(2)
 
-    open_gripper(robot)
+    open_gripper_Patty(robot)
     time.sleep(2)
 
     short_lift_down(robot)
@@ -260,13 +276,13 @@ def TopBun_sequence(robot: Robot) -> None:
     print("[TEST] Starting Top Bun Sequence")
 
     clearance_height_down(robot)
-    close_gripper(robot)
+    close_gripper_Bun(robot)
     short_lift_up(robot)
 
     belts_inward(robot)
     time.sleep(2)
 
-    open_gripper(robot)
+    open_gripper_Bun(robot)
     time.sleep(2)
 
     short_lift_down(robot)
@@ -291,7 +307,7 @@ def deliver_full_stack(robot: Robot) -> None:
     go_to_height_2(robot)
 
     # Grip completed burger
-    close_gripper(robot)
+    close_gripper_Bun(robot)
 
     # Lift burger for driving
     go_to_height_1(robot)
@@ -310,7 +326,7 @@ def deliver_burger_final(robot: Robot) -> None:
     belts_outward(robot)
     time.sleep(1)
 
-    open_gripper(robot)
+    open_gripper_Bun(robot)
 
     print("[TEST] Final Burger Dropoff Complete")
 

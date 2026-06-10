@@ -28,7 +28,7 @@ from robot.hardware_map import (
 POSITION_UNIT = Unit.MM
 
 WHEEL_DIAMETER = 76.2
-WHEEL_BASE = 345.0
+WHEEL_BASE = 345
 INITIAL_THETA_DEG = 90.0
 
 LEFT_WHEEL_MOTOR = Motor.DC_M1
@@ -46,7 +46,7 @@ MIN_DETECTION_CONFIDENCE = 0.50
 # ---------------------------------------------------------------------------
 
 KITCHEN_PATH_1 = [
-    (0.0, 0.0),
+    (0.0, 300.0),
     (0.0, 975.5),
 ]
 
@@ -67,7 +67,7 @@ SCAN_PATH_TO_LIDAR_START = [
     (129.1, 2000.0),
     (129.1, 3600.0),
     (732.1, 3600.0),
-    (732.1, 301.6),
+    (732.1, 401.6),  
     (1636.6, 301.6),
 ]
 
@@ -131,8 +131,7 @@ FINAL_EXIT_PATH = [
 # ---------------------------------------------------------------------------
 
 TRAFFIC_LIGHT_LOOK_DEG = 15.0
-TURN_TOLERANCE_DEG = 3.0
-
+TURN_TOLERANCE_DEG = 2.0
 STOP_SIGN_LOOK_RIGHT_DEG = -25.0
 STOP_SIGN_SCAN_TIMEOUT_SEC = 5.0
 STOP_SIGN_PAUSE_SEC = 3.0
@@ -205,7 +204,7 @@ def load_pure_pursuit_path(
         goal_tolerance=30.0,
         obstacles_range=450.0,
         view_angle=math.radians(90.0),
-        safe_dist=180,
+        safe_dist=300,
         avoidance_delay=250,
         alpha_Ld=0.7,
         offset=320.0,
@@ -316,9 +315,6 @@ def run(robot: Robot) -> None:
             robot.set_led(LED.GREEN, 0)
             robot.set_led(LED.ORANGE, 255)
 
-            # Do not constantly draw/avoid LiDAR obstacles in idle.
-            # robot._draw_lidar_obstacles()
-
             if robot.was_button_pressed(Button.BTN_1):
                 print(f"[FSM] BTN_1 pressed. Robot starting in 3 seconds. Stand clear!")
                 time.sleep(3)
@@ -345,6 +341,10 @@ def run(robot: Robot) -> None:
                 print("[FSM] Looking at traffic light. Waiting for green.")
                 state = "WAITING_FOR_GREEN"
 
+        # FIX 1a: Reset odometry AFTER turning back so pose is clean at
+        # (0, 0, 90deg) and matches the physical robot alignment.
+        # FIX 1b: KITCHEN_PATH_1 starts at (0, 50) not (0, 0) so pure
+        # pursuit never tries to backtrack to the origin behind the robot.
         elif state == "WAITING_FOR_GREEN":
             if check_vision_class(robot, "traffic light", "color", "green"):
                 print("[FSM] Green light detected. Turning back straight.")
@@ -359,9 +359,8 @@ def run(robot: Robot) -> None:
                 robot.set_velocity(0.0, 0.0)
                 time.sleep(0.3)
 
-                print("[FSM] Resetting odometry after traffic-light turn.")
                 robot.reset_odometry()
-                robot.wait_for_pose_update(timeout=0.3)
+                robot.wait_for_pose_update(timeout=1.0)
 
                 robot.stop()
                 robot.set_velocity(0.0, 0.0)
