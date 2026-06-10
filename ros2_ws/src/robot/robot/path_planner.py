@@ -559,6 +559,7 @@ class PurePursuitPlannerWithAvoidance(PathPlanner):
             lane_width: float=500.0,
             alpha_Ld: float=0.8,
             obstacle_avoidance: bool = True,
+            turn_threshold_deg: float = 40.0,
             ):
         self.Ld = lookahead_distance
         self.raw_LD = lookahead_distance
@@ -573,6 +574,7 @@ class PurePursuitPlannerWithAvoidance(PathPlanner):
         self.x_L = x_L
         self.lane_width = lane_width
         self.offset = offset
+        self.turn_threshold_rad = math.radians(turn_threshold_deg)
 
         self.avoidance_active = False
         self.avoidance_counter = 0
@@ -732,10 +734,13 @@ class PurePursuitPlannerWithAvoidance(PathPlanner):
         # Standard pure-pursuit curvature for a differential-drive robot.
         curvature = 2.0 * y_r / (dist * dist)
 
-        # Slow down for high-curvature turns. The lookahead-scaled term is
-        # dimensionless and gives a smooth transition between straight driving
-        # and tight cornering.
-        forward_scale = max(0.0, x_r / dist)
+        # Stop linear movement when the target is outside the turn threshold so
+        # the robot pivots in place rather than arcing through corners.
+        angle_to_target = math.atan2(abs(y_r), x_r)
+        if angle_to_target > self.turn_threshold_rad:
+            forward_scale = 0.0
+        else:
+            forward_scale = max(0.0, x_r / dist)
         curvature_scale = 1.0 + abs(curvature) * self.Ld
         linear = self.v_max * forward_scale / curvature_scale
 

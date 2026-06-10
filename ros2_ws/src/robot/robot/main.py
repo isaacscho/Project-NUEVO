@@ -28,7 +28,7 @@ from robot.hardware_map import (
 POSITION_UNIT = Unit.MM
 
 WHEEL_DIAMETER = 76.2
-WHEEL_BASE = 345
+WHEEL_BASE = 384
 INITIAL_THETA_DEG = 90.0
 
 LEFT_WHEEL_MOTOR = Motor.DC_M1
@@ -66,8 +66,8 @@ SCAN_PATH_TO_LIDAR_START = [
     (0.0, 1254.9),
     (129.1, 2000.0),
     (129.1, 3600.0),
-    (732.1, 3600.0),
-    (732.1, 401.6),  
+    (782.1, 3600.0),
+    (732.1, 401.6),
     (1636.6, 301.6),
 ]
 
@@ -131,10 +131,22 @@ FINAL_EXIT_PATH = [
 # ---------------------------------------------------------------------------
 
 TRAFFIC_LIGHT_LOOK_DEG = 15.0
-TURN_TOLERANCE_DEG = 2.0
+TURN_TOLERANCE_DEG = 5.0
 STOP_SIGN_LOOK_RIGHT_DEG = -25.0
 STOP_SIGN_SCAN_TIMEOUT_SEC = 5.0
 STOP_SIGN_PAUSE_SEC = 3.0
+
+LAPF_VELOCITY_MM_S = 75.0
+LAPF_TOLERANCE_MM = 50.0
+LAPF_MAX_ANGULAR_RAD_S = 1.0
+LAPF_LEASH_LENGTH_MM = 400.0
+LAPF_REPULSION_RANGE_MM = 500.0
+LAPF_TARGET_SPEED_MM_S = 160.0
+LAPF_REPULSION_GAIN = 700.0
+LAPF_ATTRACTION_GAIN = 1.0
+LAPF_FORCE_EMA_ALPHA = 0.35
+LAPF_INFLATION_MARGIN_MM = 150.0
+LAPF_LEASH_HALF_ANGLE_DEG = 25.0
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +201,28 @@ def configure_robot(robot: Robot) -> None:
     robot.start_lidar_world_publisher()
 
 
+def start_lapf_to_goal(
+    robot: Robot,
+    goal: tuple[float, float],
+):
+    return robot.lapf_to_goal(
+        goal[0],
+        goal[1],
+        velocity=LAPF_VELOCITY_MM_S,
+        tolerance=LAPF_TOLERANCE_MM,
+        leash_length_mm=LAPF_LEASH_LENGTH_MM,
+        repulsion_range_mm=LAPF_REPULSION_RANGE_MM,
+        target_speed_mm_s=LAPF_TARGET_SPEED_MM_S,
+        max_angular_rad_s=LAPF_MAX_ANGULAR_RAD_S,
+        repulsion_gain=LAPF_REPULSION_GAIN,
+        attraction_gain=LAPF_ATTRACTION_GAIN,
+        force_ema_alpha=LAPF_FORCE_EMA_ALPHA,
+        inflation_margin_mm=LAPF_INFLATION_MARGIN_MM,
+        leash_half_angle_deg=LAPF_LEASH_HALF_ANGLE_DEG,
+        blocking=False,
+    )
+
+
 def load_pure_pursuit_path(
     robot: Robot,
     control_points: list[tuple[float, float]],
@@ -199,14 +233,14 @@ def load_pure_pursuit_path(
 
     robot._nav_follow_pp_path(
         lookahead_distance=40.0,
-        max_linear_speed=75.0,
-        max_angular_speed=1.4,
+        max_linear_speed=120.0,
+        max_angular_speed=2.0,
         goal_tolerance=30.0,
         obstacles_range=450.0,
         view_angle=math.radians(90.0),
         safe_dist=300,
         avoidance_delay=250,
-        alpha_Ld=0.7,
+        alpha_Ld=0.3,
         offset=320.0,
         lane_width=600.0,
         obstacle_avoidance=obstacle_avoidance,
@@ -291,6 +325,7 @@ def run(robot: Robot) -> None:
     state = "INIT"
 
     stop_sign_scan_started_at = None
+    lapf_motion_handle = None
 
     period = 1.0 / float(DEFAULT_FSM_HZ)
     next_tick = time.monotonic()
@@ -433,18 +468,27 @@ def run(robot: Robot) -> None:
 
         elif state == "NAV_TO_LIDAR_START":
             if robot._nav_follow_pp_path_loop() != "MOVING":
-                print("[FSM] Reached LiDAR obstacle section. Turning obstacle avoidance ON.")
+                print("[FSM] Reached LiDAR obstacle section. Starting LAPF obstacle avoidance.")
 
-                load_pure_pursuit_path(
+                robot.stop()
+                robot.set_velocity(0.0, 0.0)
+                time.sleep(0.2)
+
+                lapf_motion_handle = start_lapf_to_goal(
                     robot,
-                    LIDAR_OBSTACLE_PATH,
-                    obstacle_avoidance=True,
+                    (1636.6, 3600.0),
                 )
-                state = "NAV_LIDAR_OBSTACLE_SECTION"
+                state = "NAV_LAPF_OBSTACLE_SECTION"
 
-        elif state == "NAV_LIDAR_OBSTACLE_SECTION":
-            if robot._nav_follow_pp_path_loop() != "MOVING":
-                print("[FSM] LiDAR obstacle section complete. Turning obstacle avoidance OFF.")
+        elif state == "NAV_LAPF_OBSTACLE_SECTION":
+            if not robot.is_moving():
+                print("[FSM] LAPF obstacle section complete. Returning to normal pure pursuit.")
+
+                robot.stop()
+                robot.set_velocity(0.0, 0.0)
+                time.sleep(0.2)
+
+                lapf_motion_handle = None
 
                 load_pure_pursuit_path(
                     robot,
@@ -638,6 +682,12 @@ def run(robot: Robot) -> None:
 
         if robot.was_button_pressed(Button.BTN_2):
             print("[FSM] BTN_2 pressed. Emergency stopping robot.")
+
+            if lapf_motion_handle is not None:
+                lapf_motion_handle.cancel()
+                lapf_motion_handle.wait(timeout=1.0)
+                lapf_motion_handle = None
+
             robot.shutdown()
             state = "IDLE"
 
