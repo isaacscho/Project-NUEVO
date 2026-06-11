@@ -68,17 +68,19 @@ SCAN_PATH_TO_LIDAR_START = [
     (129.1, 3600.0),
     (782.1, 3600.0),
     (732.1, 401.6),
-    (1636.6, 301.6),
+    (1636.6, 401.6),
+    (1636.6, 700.0)
 ]
 
 # Only this section uses obstacle avoidance.
 LIDAR_OBSTACLE_PATH = [
-    (1636.6, 301.6),
-    (1636.6, 3600.0),
+    (1636.6, 700.0),
+    (1636.6, 3300.0),
 ]
 
 # Continue to customer scan station with obstacle avoidance OFF.
 SCAN_PATH_AFTER_LIDAR = [
+    (1636.6, 3300.0),
     (1636.6, 3600.0),
     (2088.5, 3600.0),
 ]
@@ -136,17 +138,17 @@ STOP_SIGN_LOOK_RIGHT_DEG = -25.0
 STOP_SIGN_SCAN_TIMEOUT_SEC = 5.0
 STOP_SIGN_PAUSE_SEC = 3.0
 
-LAPF_VELOCITY_MM_S = 75.0
+LAPF_VELOCITY_MM_S = 60.0
 LAPF_TOLERANCE_MM = 50.0
 LAPF_MAX_ANGULAR_RAD_S = 1.0
 LAPF_LEASH_LENGTH_MM = 400.0
-LAPF_REPULSION_RANGE_MM = 500.0
-LAPF_TARGET_SPEED_MM_S = 160.0
-LAPF_REPULSION_GAIN = 700.0
+LAPF_REPULSION_RANGE_MM = 400.0
+LAPF_TARGET_SPEED_MM_S = 120.0
+LAPF_REPULSION_GAIN = 450.0
 LAPF_ATTRACTION_GAIN = 1.0
 LAPF_FORCE_EMA_ALPHA = 0.35
-LAPF_INFLATION_MARGIN_MM = 150.0
-LAPF_LEASH_HALF_ANGLE_DEG = 25.0
+LAPF_INFLATION_MARGIN_MM = 100.0
+LAPF_LEASH_HALF_ANGLE_DEG = 18.0
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +196,8 @@ def configure_robot(robot: Robot) -> None:
     # Front-focused LiDAR filter so it does not constantly avoid side walls.
     robot.set_lidar_filter(
         range_min_mm=150.0,
-        range_max_mm=6000.0,
-        fov_deg=(-45.0, 45.0),
+        range_max_mm=1500.0,
+        fov_deg=(-55.0, 55.0),
     )
 
     robot.start_lidar_world_publisher()
@@ -248,6 +250,7 @@ def load_pure_pursuit_path(
         avoidance_delay=250,
         offset=320.0,
         alpha_Ld=0.3,
+        obstacle_avoidance=False,
     )
 
     robot.planner.set_path(path)
@@ -475,7 +478,7 @@ def run(robot: Robot) -> None:
 
                 lapf_motion_handle = start_lapf_to_goal(
                     robot,
-                    (1636.6, 3600.0),
+                    (1636.6, 3300.0),
                 )
                 state = "NAV_LAPF_OBSTACLE_SECTION"
 
