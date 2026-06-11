@@ -28,7 +28,7 @@ from robot.hardware_map import (
 POSITION_UNIT = Unit.MM
 
 WHEEL_DIAMETER = 76.2
-WHEEL_BASE = 384
+WHEEL_BASE = 400
 INITIAL_THETA_DEG = 90.0
 
 LEFT_WHEEL_MOTOR = Motor.DC_M1
@@ -65,8 +65,8 @@ KITCHEN_PATH_3 = [
 SCAN_PATH_TO_LIDAR_START = [
     (0.0, 1254.9),
     (129.1, 2000.0),
-    (129.1, 3600.0),
-    (782.1, 3600.0),
+    (129.1, 3400.0),
+    (782.1, 3400.0),
     (732.1, 401.6),
     (1636.6, 401.6),
     (1636.6, 700.0)
@@ -75,21 +75,21 @@ SCAN_PATH_TO_LIDAR_START = [
 # Only this section uses obstacle avoidance.
 LIDAR_OBSTACLE_PATH = [
     (1636.6, 700.0),
-    (1636.6, 3300.0),
+    (1636.6, 3100.0),
 ]
 
 # Continue to customer scan station with obstacle avoidance OFF.
 SCAN_PATH_AFTER_LIDAR = [
-    (1636.6, 3300.0),
-    (1636.6, 3600.0),
-    (2088.5, 3600.0),
+    (1636.6, 3400.0),
+    (1636.6, 3400.0),
+    (2088.5, 3400.0),
 ]
 
 
 # Stop at prep point
 PREP_PATH_CTRL = [
-    (2088.5, 3600.0),
-    (2541.1, 3600.0),
+    (2088.5, 3400.0),
+    (2541.1, 3400.0),
     (2541.1, 2000.0),
 ]
 
@@ -139,7 +139,7 @@ STOP_SIGN_SCAN_TIMEOUT_SEC = 5.0
 STOP_SIGN_PAUSE_SEC = 3.0
 
 LAPF_VELOCITY_MM_S = 60.0
-LAPF_TOLERANCE_MM = 50.0
+LAPF_TOLERANCE_MM = 25.0
 LAPF_MAX_ANGULAR_RAD_S = 1.0
 LAPF_LEASH_LENGTH_MM = 400.0
 LAPF_REPULSION_RANGE_MM = 400.0
@@ -240,9 +240,9 @@ def load_pure_pursuit_path(
     # tuning arguments even when obstacle_avoidance=False, so they are provided
     # as inactive placeholder values.
     robot._nav_follow_pp_path(
-        lookahead_distance=40.0,
+        lookahead_distance=30.0,
         max_linear_speed=120.0,
-        max_angular_speed=2.0,
+        max_angular_speed=3,
         goal_tolerance=30.0,
         obstacles_range=450.0,
         view_angle=math.radians(90.0),
