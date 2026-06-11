@@ -230,17 +230,27 @@ def load_pure_pursuit_path(
     path = densify_polyline(control_points, spacing=20.0)
 
     # Pure pursuit is used only for normal path following.
-    # Obstacle avoidance is handled separately by LAPF in NAV_LAPF_OBSTACLE_SECTION.
+    # PP obstacle avoidance is disabled here.
+    # LAPF handles obstacle avoidance separately in NAV_LAPF_OBSTACLE_SECTION.
+    #
+    # NOTE:
+    # LegacyMixin._nav_follow_pp_path() still requires the obstacle-avoidance
+    # tuning arguments even when obstacle_avoidance=False, so they are provided
+    # as inactive placeholder values.
     robot._nav_follow_pp_path(
         lookahead_distance=40.0,
         max_linear_speed=120.0,
         max_angular_speed=2.0,
         goal_tolerance=30.0,
-        obstacle_avoidance=False,
+        obstacles_range=450.0,
+        view_angle=math.radians(90.0),
+        safe_dist=300.0,
+        avoidance_delay=250,
+        offset=320.0,
+        alpha_Ld=0.3,
     )
 
     robot.planner.set_path(path)
-
 
 # ---------------------------------------------------------------------------
 # Helpers: Vision & Biometrics
@@ -507,7 +517,6 @@ def run(robot: Robot) -> None:
                     load_pure_pursuit_path(
                         robot,
                         PREP_PATH_CTRL,
-                        obstacle_avoidance=False,
                     )
                     state = "NAV_TO_SHARED_DELIVERY_PREP"
 
@@ -536,7 +545,6 @@ def run(robot: Robot) -> None:
                     load_pure_pursuit_path(
                         robot,
                         CUST_1_FINAL_PATH_CTRL,
-                        obstacle_avoidance=False,
                     )
                     state = "NAV_TO_DELIVERY_SPOT_1"
 
@@ -545,7 +553,6 @@ def run(robot: Robot) -> None:
                     load_pure_pursuit_path(
                         robot,
                         CUST_2_FINAL_PATH_CTRL,
-                        obstacle_avoidance=False,
                     )
                     state = "NAV_TO_DELIVERY_SPOT_2"
 
