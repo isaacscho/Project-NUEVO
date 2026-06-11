@@ -226,25 +226,17 @@ def start_lapf_to_goal(
 def load_pure_pursuit_path(
     robot: Robot,
     control_points: list[tuple[float, float]],
-    *,
-    obstacle_avoidance: bool = False,
 ) -> None:
     path = densify_polyline(control_points, spacing=20.0)
 
+    # Pure pursuit is used only for normal path following.
+    # Obstacle avoidance is handled separately by LAPF in NAV_LAPF_OBSTACLE_SECTION.
     robot._nav_follow_pp_path(
         lookahead_distance=40.0,
         max_linear_speed=120.0,
         max_angular_speed=2.0,
         goal_tolerance=30.0,
-        obstacles_range=450.0,
-        view_angle=math.radians(90.0),
-        safe_dist=300,
-        avoidance_delay=250,
-        alpha_Ld=0.3,
-        offset=320.0,
-        lane_width=600.0,
-        obstacle_avoidance=obstacle_avoidance,
-        x_L=300.0,
+        obstacle_avoidance=False,
     )
 
     robot.planner.set_path(path)
@@ -376,10 +368,10 @@ def run(robot: Robot) -> None:
                 print("[FSM] Looking at traffic light. Waiting for green.")
                 state = "WAITING_FOR_GREEN"
 
-        # FIX 1a: Reset odometry AFTER turning back so pose is clean at
+        # Reset odometry AFTER turning back so pose is clean at
         # (0, 0, 90deg) and matches the physical robot alignment.
-        # FIX 1b: KITCHEN_PATH_1 starts at (0, 50) not (0, 0) so pure
-        # pursuit never tries to backtrack to the origin behind the robot.
+        # KITCHEN_PATH_1 starts ahead of the reset pose so pure pursuit
+        # does not try to backtrack to the origin behind the robot.
         elif state == "WAITING_FOR_GREEN":
             if check_vision_class(robot, "traffic light", "color", "green"):
                 print("[FSM] Green light detected. Turning back straight.")
@@ -402,7 +394,7 @@ def run(robot: Robot) -> None:
                 time.sleep(0.2)
 
                 print("[FSM] Starting kitchen path 1.")
-                load_pure_pursuit_path(robot, KITCHEN_PATH_1, obstacle_avoidance=False)
+                load_pure_pursuit_path(robot, KITCHEN_PATH_1)
                 state = "NAV_KITCHEN_1"
 
         # -------------------------------------------------------------------
@@ -420,7 +412,6 @@ def run(robot: Robot) -> None:
                 load_pure_pursuit_path(
                     robot,
                     KITCHEN_PATH_2,
-                    obstacle_avoidance=False,
                 )
                 state = "NAV_KITCHEN_2"
 
@@ -439,7 +430,6 @@ def run(robot: Robot) -> None:
                 load_pure_pursuit_path(
                     robot,
                     KITCHEN_PATH_3,
-                    obstacle_avoidance=False,
                 )
                 state = "NAV_KITCHEN_3"
 
@@ -458,7 +448,6 @@ def run(robot: Robot) -> None:
                 load_pure_pursuit_path(
                     robot,
                     SCAN_PATH_TO_LIDAR_START,
-                    obstacle_avoidance=False,
                 )
                 state = "NAV_TO_LIDAR_START"
 
@@ -493,7 +482,6 @@ def run(robot: Robot) -> None:
                 load_pure_pursuit_path(
                     robot,
                     SCAN_PATH_AFTER_LIDAR,
-                    obstacle_avoidance=False,
                 )
                 state = "NAV_TO_CUSTOMER_SCAN"
 
@@ -580,7 +568,6 @@ def run(robot: Robot) -> None:
                 load_pure_pursuit_path(
                     robot,
                     STOP_PATH_1,
-                    obstacle_avoidance=False,
                 )
                 state = "NAV_TO_STOP_SIGN"
 
@@ -595,7 +582,6 @@ def run(robot: Robot) -> None:
                 load_pure_pursuit_path(
                     robot,
                     STOP_PATH_2,
-                    obstacle_avoidance=False,
                 )
                 state = "NAV_TO_STOP_SIGN"
 
@@ -657,7 +643,6 @@ def run(robot: Robot) -> None:
                 load_pure_pursuit_path(
                     robot,
                     FINAL_EXIT_PATH,
-                    obstacle_avoidance=False,
                 )
                 state = "NAV_TO_FINAL_EXIT"
 
