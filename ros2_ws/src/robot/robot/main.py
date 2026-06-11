@@ -82,49 +82,49 @@ LIDAR_OBSTACLE_PATH = [
 SCAN_PATH_AFTER_LIDAR = [
     (1636.6, 3400.0),
     (1636.6, 3400.0),
-    (2088.5, 3400.0),
+    (1988.5, 3400.0),
 ]
 
 
 # Stop at prep point
 PREP_PATH_CTRL = [
-    (2088.5, 3400.0),
-    (2541.1, 3400.0),
-    (2541.1, 2000.0),
+    (1988.5, 3400.0),
+    (2441.1, 3400.0),
+    (2441.1, 2000.0),
 ]
 
 # Delivery path 1:
 # Run deliver_full_stack(), then drive to final shelf.
 
 CUST_1_FINAL_PATH_CTRL = [
-    (2541.1, 2000.0),
-    (2670.2, 1500.0),
-    (2670.2, 1185.1),
+    (2441.1, 2000.0),
+    (2570.2, 1500.0),
+    (2570.2, 1185.1),
 ]
 
 STOP_PATH_1 = [
-    (2670.2, 1185.1),
-    (2541.1, 800.0),
-    (2541.1, 603.2),
+    (2570.2, 1185.1),
+    (2441.1, 800.0),
+    (2441.1, 603.2),
 ]
 
 # Delivery path 2:
 # Run deliver_full_stack(), then drive to final shelf.
 CUST_2_FINAL_PATH_CTRL = [
-    (2541.1, 2000.0),
-    (2670.2, 1500.0),
-    (2670.2, 1045.4),
+    (2441.1, 2000.0),
+    (2570.2, 1500.0),
+    (2570.2, 1045.4),
 ]
 
 STOP_PATH_2 = [
-    (2670.2, 1045.4),
-    (2541.1, 800.0),
-    (2541.1, 603.2),
+    (2570.2, 1045.4),
+    (2441.1, 800.0),
+    (2441.1, 603.2),
 ]
 
 FINAL_EXIT_PATH = [
-    (2541.1, 603.2),
-    (2541.1, 0.0),
+    (2441.1, 603.2),
+    (2441.1, 0.0),
 ]
 
 
@@ -240,7 +240,7 @@ def load_pure_pursuit_path(
     # tuning arguments even when obstacle_avoidance=False, so they are provided
     # as inactive placeholder values.
     robot._nav_follow_pp_path(
-        lookahead_distance=30.0,
+        lookahead_distance=25.0,
         max_linear_speed=120.0,
         max_angular_speed=3,
         goal_tolerance=30.0,
