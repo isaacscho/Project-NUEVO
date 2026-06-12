@@ -28,7 +28,7 @@ from robot.hardware_map import (
 POSITION_UNIT = Unit.MM
 
 WHEEL_DIAMETER = 76.2
-WHEEL_BASE = 384
+WHEEL_BASE = 350.0
 INITIAL_THETA_DEG = 90.0
 
 LEFT_WHEEL_MOTOR = Motor.DC_M1
