@@ -98,7 +98,7 @@ PREP_PATH_CTRL = [
 
 CUST_1_FINAL_PATH_CTRL = [
     (2541.1, 2000.0),
-    (2670.2, 1500.0),
+    (2670.2, 1400.0),
     (2670.2, 1085.1),
 ]
 
@@ -112,7 +112,7 @@ STOP_PATH_1 = [
 # Run deliver_full_stack(), then drive to final shelf.
 CUST_2_FINAL_PATH_CTRL = [
     (2541.1, 2000.0),
-    (2670.2, 1500.0),
+    (2670.2, 1400.0),
     (2670.2, 945.4),
 ]
 
