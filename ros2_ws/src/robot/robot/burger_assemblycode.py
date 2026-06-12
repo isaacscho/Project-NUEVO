@@ -327,6 +327,7 @@ def deliver_burger_final(robot: Robot) -> None:
     time.sleep(1)
 
     open_gripper_Bun(robot)
+    go_to_height_1(robot)
 
     print("[TEST] Final Burger Dropoff Complete")
 
