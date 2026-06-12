@@ -75,21 +75,21 @@ SCAN_PATH_TO_LIDAR_START = [
 # Only this section uses obstacle avoidance.
 LIDAR_OBSTACLE_PATH = [
     (1636.6, 800.0),
-    (1636.6, 3000.0),
+    (1636.6, 2800.0),
 ]
 
 # Continue to customer scan station with obstacle avoidance OFF.
 SCAN_PATH_AFTER_LIDAR = [
     (1636.6, 3000.0),
-    (1636.6, 3300.0),
-    (2088.5, 3300.0),
+    (1636.6, 3400.0),
+    (2088.5, 3400.0),
 ]
 
 
 # Stop at prep point
 PREP_PATH_CTRL = [
-    (2088.5, 3300.0),
-    (2541.1, 3300.0),
+    (2088.5, 3400.0),
+    (2541.1, 3400.0),
     (2541.1, 2000.0),
 ]
 
@@ -478,7 +478,7 @@ def run(robot: Robot) -> None:
 
                 lapf_motion_handle = start_lapf_to_goal(
                     robot,
-                    (1636.6, 3000.0),
+                    (1636.6, 2800.0),
                 )
                 state = "NAV_LAPF_OBSTACLE_SECTION"
 
