@@ -80,7 +80,7 @@ LIDAR_OBSTACLE_PATH = [
 
 # Continue to customer scan station with obstacle avoidance OFF.
 SCAN_PATH_AFTER_LIDAR = [
-    (1636.6, 2500.0),
+    (1636.6, 2800.0),
     (1636.6, 3300.0),
     (2088.5, 3300.0),
 ]
