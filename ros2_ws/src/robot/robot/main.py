@@ -65,8 +65,8 @@ KITCHEN_PATH_3 = [
 SCAN_PATH_TO_LIDAR_START = [
     (0.0, 1254.9),
     (129.1, 2000.0),
-    (129.1, 3600.0),
-    (782.1, 3600.0),
+    (129.1, 3400.0),
+    (782.1, 3400.0),
     (732.1, 401.6),
     (1636.6, 401.6),
     (1636.6, 700.0)
@@ -75,21 +75,21 @@ SCAN_PATH_TO_LIDAR_START = [
 # Only this section uses obstacle avoidance.
 LIDAR_OBSTACLE_PATH = [
     (1636.6, 700.0),
-    (1636.6, 3300.0),
+    (1636.6, 3100.0),
 ]
 
 # Continue to customer scan station with obstacle avoidance OFF.
 SCAN_PATH_AFTER_LIDAR = [
-    (1636.6, 3300.0),
-    (1636.6, 3600.0),
-    (2088.5, 3600.0),
+    (1636.6, 3100.0),
+    (1636.6, 3400.0),
+    (2088.5, 3400.0),
 ]
 
 
 # Stop at prep point
 PREP_PATH_CTRL = [
-    (2088.5, 3600.0),
-    (2541.1, 3600.0),
+    (2088.5, 3400.0),
+    (2541.1, 3400.0),
     (2541.1, 2000.0),
 ]
 
