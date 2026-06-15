@@ -82,7 +82,7 @@ Then press **BTN_1** to start the demo.
 
 ### Expected Demo Flow
 
-`IDLE` -> `BTN_1` -> Turn left 25 deg -> Wait for green light -> Turn back straight -> Kitchen assembly -> Face scan -> Delivery -> Post-delivery roll -> Turn right 25 deg -> Stop sign scan -> `STOP`.
+`IDLE` -> `BTN_1` -> Turn left 15 deg -> Wait for green light -> Kitchen assembly -> Face scan -> Delivery -> Turn right 25 deg -> Stop sign scan -> `STOP`.
 
 ## Fast Troubleshooting
 
