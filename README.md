@@ -128,7 +128,7 @@ Then press **BTN_1** to start the demo.
 | [docs/README.md](https://github.com/isaacscho/Project-NUEVO/blob/main/docs/README.md) | Cross-project documentation map and source-of-truth index |
 | [docs/COMMUNICATION_PROTOCOL.md](https://github.com/isaacscho/Project-NUEVO/blob/main/docs/COMMUNICATION_PROTOCOL.md) | Protocol behavior, framing, and logical TLV design |
 | [firmware/README.md](https://github.com/isaacscho/Project-NUEVO/blob/main/firmware/README.md) | Arduino firmware overview and build instructions |
-| [NUEVO board/SPECIFICATIONS.md](https://github.com/isaacscho/Project-NUEVO/blob/main/NUEVO%20board/SPECIFICATIONS.md) | PCB hardware specifications |
+| [NUEVO board/SPECIFICATIONS.md](https://github.com/isaacscho/Project-NUEVO/blob/main/nuevo_board/SPECIFICATIONS.md) | PCB hardware specifications |
 
 ```
 
