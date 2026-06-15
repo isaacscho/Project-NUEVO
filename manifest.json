@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "course": "MAE 162D/E",
+  "year": 2026,
+  "section": "Yen",
+  "group": 2, 
+  "title": "Project-NUEVO: Autonomous Burger Assembly & Delivery Robot",
+  "authors": ["Isaac Ho", "Neyvary Paredes", "Jenise Hurtado", "Shirley Xiang", "Jeremey Shen", "Sophia Wang"],
+  "summary": "An autonomous, ROS 2-powered rear-wheel drive robot featuring a sideways manipulator for drive-by burger assembly, LAPF obstacle avoidance, and biometric customer delivery.",
+  "thumbnail": "assets/IMG_3436.png",
+  "keywords": ["ROS 2", "Autonomous Navigation", "Computer Vision", "LAPF", "Kinematics"]
+}
