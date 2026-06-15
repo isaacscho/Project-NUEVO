@@ -30,11 +30,105 @@ Automating kitchen assembly requires high precision in incredibly constrained sp
 * **Vision & State Management:** Successfully decoupled heavy `dlib` facial encoding from the main control loop by placing it behind a triggered ROS 2 service, maintaining a stable, high FSM tick rate and fast YOLO inference times during active driving.
 * **Manipulation:** The two-stage delivery sequence (prepping the burger at a shared waypoint before executing the final shelf approach) significantly increased delivery success rates by preventing mid-turn payload drops.
 
-## How To Reproduce
+## How To Reproduce & Quick Demo Run Guide
 
-### 1. Build the Workspace
+### 1. Sync Latest Code (On the Pi Host)
+Run from the Raspberry Pi host, not inside Docker:
 ```bash
-git clone [https://github.com/isaacscho/Project-NUEVO](https://github.com/isaacscho/Project-NUEVO)
-cd Project-NUEVO/ros2_ws
-colcon build
-source install/setup.bash
+cd ~/Project-NUEVO
+git status
+git pull origin main
+./ros2_ws/docker/restart.sh rpi
+
+```
+
+### 2. Open Three Docker Terminals
+
+In each terminal, initialize the ROS 2 environment:
+
+```bash
+cd ~/Project-NUEVO
+./ros2_ws/docker/enter_ros2.sh rpi
+
+```
+
+### 3. Terminal 1 - LiDAR
+
+```bash
+ros2 launch rplidar_ros rplidar_c1.launch.py
+
+```
+
+*(Quick check from another terminal: `ros2 topic echo /scan --once`)*
+
+### 4. Terminal 2 - Vision + Facial Recognition
+
+```bash
+ros2 launch vision vision_debug.launch.py
+
+```
+
+*(Quick check from another terminal: `ros2 service call /vision/capture_target std_srvs/srv/Trigger` -> Expected face result: success=True and message="guy.jpg" or "girl.jpg")*
+
+### 5. Terminal 3 - Run the Robot
+
+```bash
+ros2 service call /set_firmware_state bridge_interfaces/srv/SetFirmwareState "{target_state: 2}"
+ros2 run robot robot
+
+```
+
+Then press **BTN_1** to start the demo.
+
+### Expected Demo Flow
+
+`IDLE` -> `BTN_1` -> Turn left 25 deg -> Wait for green light -> Turn back straight -> Kitchen assembly -> Face scan -> Delivery -> Post-delivery roll -> Turn right 25 deg -> Stop sign scan -> `STOP`.
+
+## Fast Troubleshooting
+
+| Problem | Command / Fix |
+| --- | --- |
+| **No robot executable** | `cd ~/ros2_ws && colcon build --packages-select robot --symlink-install && source install/setup.bash && ros2 pkg executables robot` |
+| **Vision capture missing** | Start vision: `ros2 launch vision vision_debug.launch.py`; Check: `ros2 service list |
+| **No /scan topic** | Start LiDAR: `ros2 launch rplidar_ros rplidar_c1.launch.py`; Host check: `ls -l /dev/rplidar` |
+| **Camera missing** | Host: `cd ~/Project-NUEVO && ./ros2_ws/host_camera/check.sh`; Expected `/dev/video10` |
+| **Bridge not responding** | Host: `curl http://localhost:8000/health`; Docker: `ros2 topic echo /sys_state --once` |
+| **Code changes not reflected** | Host: `./ros2_ws/docker/restart.sh rpi`; Rebuild robot/vision inside Docker if needed. |
+| **Emergency stop** | Press **BTN_2** or call SetFirmwareState `target_state: 4` |
+
+*Minimum Pass Check: `/bridge`, `/vision_node`, `/scan`, `/vision/detections`, `/vision/capture_target`, and `/sys_state` must be available.*
+
+## Team Contributions
+
+| Member | Contributions |
+| --- | --- |
+| **Toby Chen** | Documentation, gallery integration, and repository structuring. |
+| **Small Kevin** | Mechanical design, RWD chassis conversion, and manipulator validation. |
+| **Big Will** | Controls, sensor integration, and LAPF system testing. |
+| **Jimmy** | Software architecture, state machine logic, and ROS 2 vision pipeline. |
+| **Jason** | Electrical wiring, custom PCB integration, and hardware debugging. |
+
+## Repository Structure & Documentation
+
+```text
+├── firmware/       Arduino firmware and firmware-specific docs
+├── nuevo_ui/       Raspberry Pi bridge + web UI
+├── ros2_ws/        ROS2 workspace and Pi-side tests
+├── tlv_protocol/   TLV type definitions, payload schemas, generators
+├── NUEVO board/    PCB design files (schematics, layouts, BOM)
+├── mechanical/     CAD files for chassis and manipulators
+├── docs/           Cross-project architecture, protocol, and design docs
+└── assets/         Shared repo assets
+
+```
+
+| Document | Purpose |
+| --- | --- |
+| [docs/README.md](https://www.google.com/search?q=docs/README.md) | Cross-project documentation map and source-of-truth index |
+| [docs/COMMUNICATION_PROTOCOL.md](https://www.google.com/search?q=docs/COMMUNICATION_PROTOCOL.md) | Protocol behavior, framing, and logical TLV design |
+| [firmware/README.md](https://www.google.com/search?q=firmware/README.md) | Arduino firmware overview and build instructions |
+| [NUEVO board/SPECIFICATIONS.md](https://www.google.com/search?q=NUEVO%2520board/SPECIFICATIONS.md) | PCB hardware specifications |
+
+```
+
+```
