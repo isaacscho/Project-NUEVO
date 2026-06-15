@@ -129,7 +129,3 @@ Then press **BTN_1** to start the demo.
 | [docs/COMMUNICATION_PROTOCOL.md](https://github.com/isaacscho/Project-NUEVO/blob/main/docs/COMMUNICATION_PROTOCOL.md) | Protocol behavior, framing, and logical TLV design |
 | [firmware/README.md](https://github.com/isaacscho/Project-NUEVO/blob/main/firmware/README.md) | Arduino firmware overview and build instructions |
 | [NUEVO board/SPECIFICATIONS.md](https://github.com/isaacscho/Project-NUEVO/blob/main/nuevo_board/SPECIFICATIONS.md) | PCB hardware specifications |
-
-```
-
-```
