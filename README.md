@@ -102,11 +102,12 @@ Then press **BTN_1** to start the demo.
 
 | Member | Contributions |
 | --- | --- |
-| **Toby Chen** | Documentation, gallery integration, and repository structuring. |
-| **Small Kevin** | Mechanical design, RWD chassis conversion, and manipulator validation. |
-| **Big Will** | Controls, sensor integration, and LAPF system testing. |
-| **Jimmy** | Software architecture, state machine logic, and ROS 2 vision pipeline. |
-| **Jason** | Electrical wiring, custom PCB integration, and hardware debugging. |
+| **Isaac Ho** | Controls, Hardware Debugging, Software Architecture, State Machine Logic, ROS 2 Vision Pipeline, LAPF System Testing, Repository Structuring, Gallery Integration, System Refinement. |
+| **Jenise Hurtado** | Controls, Electrical Wiring, Hardware Debugging, Documentation, Manipulator Validation, System Refinement. |
+| **Neyvary Paredes** | Controls, Electrical Wiring, Hardware Debugging, Documentation, Manipulator Validation, System Refinement. |
+| **Jeremy Shen** | Mechanical Design, Assembly, Prototyping. |
+| **Shirley Xiang** | Controls, Documentation, LAPF System Testing, System Refinement. |
+| **Sophia Wang** | Mechanical Design, Assembly, Prototyping. |
 
 ## Repository Structure & Documentation
 
@@ -124,10 +125,10 @@ Then press **BTN_1** to start the demo.
 
 | Document | Purpose |
 | --- | --- |
-| [docs/README.md](https://www.google.com/search?q=docs/README.md) | Cross-project documentation map and source-of-truth index |
-| [docs/COMMUNICATION_PROTOCOL.md](https://www.google.com/search?q=docs/COMMUNICATION_PROTOCOL.md) | Protocol behavior, framing, and logical TLV design |
-| [firmware/README.md](https://www.google.com/search?q=firmware/README.md) | Arduino firmware overview and build instructions |
-| [NUEVO board/SPECIFICATIONS.md](https://www.google.com/search?q=NUEVO%2520board/SPECIFICATIONS.md) | PCB hardware specifications |
+| [docs/README.md](https://github.com/isaacscho/Project-NUEVO/blob/main/docs/README.md) | Cross-project documentation map and source-of-truth index |
+| [docs/COMMUNICATION_PROTOCOL.md](https://github.com/isaacscho/Project-NUEVO/blob/main/docs/COMMUNICATION_PROTOCOL.md) | Protocol behavior, framing, and logical TLV design |
+| [firmware/README.md](https://github.com/isaacscho/Project-NUEVO/blob/main/firmware/README.md) | Arduino firmware overview and build instructions |
+| [NUEVO board/SPECIFICATIONS.md](https://github.com/isaacscho/Project-NUEVO/blob/main/NUEVO%20board/SPECIFICATIONS.md) | PCB hardware specifications |
 
 ```
 
